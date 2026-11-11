@@ -57,6 +57,7 @@ Json requestPayload({
   int? typeId,
   String? startAt,
   String? endAt,
+  String? punchKind,
   String? amount,
   List<Json> items = const [],
   List<String> attachmentIds = const [],
@@ -64,7 +65,14 @@ Json requestPayload({
   List<int> cc = const [],
   bool proofRequired = false,
 }) {
-  if (!['LEAVE', 'TRAVEL', 'OUTING', 'EXPENSE'].contains(kind)) {
+  if (![
+    'LEAVE',
+    'TRAVEL',
+    'OUTING',
+    'EXPENSE',
+    'OVERTIME',
+    'CORRECTION',
+  ].contains(kind)) {
     throw ApiError('申请类型无效');
   }
   if (reason.trim().isEmpty || reason.length > 2000) {
@@ -76,7 +84,18 @@ Json requestPayload({
     'reason': reason.trim(),
     'ccUserIds': cc.toSet().toList(),
   };
-  if (kind == 'EXPENSE') {
+  if (kind == 'CORRECTION') {
+    final at = DateTime.tryParse(startAt ?? '');
+    final now = DateTime.parse(
+      shanghaiNow().toIso8601String().replaceAll('Z', ''),
+    );
+    if (at == null ||
+        at.isAfter(now) ||
+        !['NORMAL', 'FIELD'].contains(punchKind)) {
+      throw ApiError('请选择过去的补卡时间及打卡类型');
+    }
+    result.addAll({'startAt': startAt, 'punchKind': punchKind});
+  } else if (kind == 'EXPENSE') {
     final total = cents(amount ?? '');
     if (items.isEmpty || items.length > 100) throw ApiError('报销需1–100行费用明细');
     int sum = 0;
@@ -107,17 +126,18 @@ Json requestPayload({
     if (start == null ||
         end == null ||
         !end.isAfter(start) ||
-        start.year != end.year ||
+        (kind != 'OVERTIME' && start.year != end.year) ||
         ![9, 13].contains(start.hour) ||
         ![13, 18].contains(end.hour) ||
         start.minute != 0 ||
         end.minute != 0) {
-      throw ApiError('请选择同一年内有效的半天起止时段');
+      throw ApiError(kind == 'OVERTIME' ? '请选择有效的半天起止时段' : '请选择同一年内有效的半天起止时段');
     }
     // Submitted strings describe Shanghai wall time, independent of the phone timezone.
-    if (!end.isAfter(
-      DateTime.parse(shanghaiNow().toIso8601String().replaceAll('Z', '')),
-    )) {
+    if (kind != 'OVERTIME' &&
+        !end.isAfter(
+          DateTime.parse(shanghaiNow().toIso8601String().replaceAll('Z', '')),
+        )) {
       throw ApiError('结束时间须在未来');
     }
     if (proofRequired && attachmentId == null) throw ApiError('此假期必须上传证明');
@@ -134,4 +154,15 @@ Json requestPayload({
 void validateDecision(bool approve, String comment) {
   if (!approve && comment.trim().isEmpty) throw ApiError('驳回必须填写意见');
   if (comment.length > 1000) throw ApiError('审批意见最多1000字');
+}
+
+// API timestamps carry +08:00; compare instants to work on phones in every timezone.
+bool canCancelApproved(Json detail, {DateTime? now}) {
+  if (detail['status'] != 'APPROVED' ||
+      ['EXPENSE', 'CORRECTION'].contains(detail['kind'])) {
+    return false;
+  }
+  final start = DateTime.tryParse('${detail['start_at']}');
+  return start != null &&
+      start.toUtc().isAfter((now ?? DateTime.now()).toUtc());
 }

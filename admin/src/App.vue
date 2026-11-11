@@ -54,6 +54,8 @@ const balance = reactive({
   amount: 0,
 });
 const workflow = reactive({
+  correctionDays: 3,
+  overtimeRatio: 1,
   leaveThreshold: 1,
   travelThreshold: 1,
   expenseThreshold: 1000,
@@ -61,6 +63,8 @@ const workflow = reactive({
 });
 const application = reactive({
   userId: null as number | null,
+  punchKind: 'NORMAL',
+  correctionAt: '',
   kind: 'LEAVE',
   typeId: null as number | null,
   startDate: '',
@@ -109,6 +113,7 @@ const nav = computed(() => isAdmin.value ? [
   { key: 'networks', title: '公司网络', icon: '网' },
   { key: 'leave-types', title: '假期配置', icon: '假' },
   { key: 'balances', title: '假期余额', icon: '余' },
+  { key: 'balance-history', title: '余额流水', icon: '账' },
   { key: 'workflow', title: '审批分流', icon: '流' },
   { key: 'requests', title: '审批单据', icon: '审' },
   { key: 'punches', title: '打卡记录', icon: '勤' },
@@ -177,6 +182,7 @@ const columns: Record<string, string[]> = {
     'proof_required:必须证明',
     'enabled:启用',
   ],
+  'balance-history': ['user_name:员工', 'type_name:假期', 'year:年度', 'delta:变动天数', 'balance_after:变动后余额', 'request_id:关联单号', 'reason:原因', 'actor_name:操作人', 'created_at:时间'],
   balances: ['user_name:姓名', 'type_name:假期类型', 'year:年度', 'amount:剩余天数'],
   requests: [
     'id:单号',
@@ -194,6 +200,8 @@ const columns: Record<string, string[]> = {
     'user_name:姓名',
     'punched_at:打卡时间',
     'kind:类型',
+    'source:记录来源',
+    'correction_request_id:补卡单号',
     'latitude:纬度',
     'longitude:经度',
     'accuracy:精度（米）',
@@ -279,6 +287,8 @@ async function load() {
     if (page.value === 'workflow') {
       const w = await api('/admin/workflow');
       Object.assign(workflow, {
+        correctionDays: w.correction_days,
+        overtimeRatio: w.overtime_ratio,
         leaveThreshold: w.leave_threshold,
         travelThreshold: w.travel_threshold,
         expenseThreshold: w.expense_threshold,
@@ -288,6 +298,7 @@ async function load() {
     else if (['requests', 'punches'].includes(page.value))
       rows.value = await api('/' + page.value + query());
     else rows.value = await api((page.value === 'notifications' ? '/' : '/admin/') + page.value);
+    if (page.value === 'punches') rows.value = rows.value.map(r => ({...r, source: r.correction_request_id ? '补卡' : '现场打卡'}));
   } finally {
     loading.value = false;
   }
@@ -335,6 +346,8 @@ function openCreate() {
   if (page.value === 'requests') {
     Object.assign(application, {
       userId: null,
+      punchKind: 'NORMAL',
+      correctionAt: '',
       kind: 'LEAVE',
       typeId: types.value[0]?.id ?? null,
       startDate: '',
@@ -410,11 +423,11 @@ async function save() {
         ...application,
         typeId: application.kind === 'LEAVE' ? application.typeId : null,
         startAt:
-          application.kind === 'EXPENSE'
+          application.kind === 'CORRECTION' ? application.correctionAt : application.kind === 'EXPENSE'
             ? null
             : application.startDate + 'T' + application.startTime + ':00',
         endAt:
-          application.kind === 'EXPENSE'
+          ['EXPENSE', 'CORRECTION'].includes(application.kind)
             ? null
             : application.endDate + 'T' + application.endTime + ':00',
         amount: application.kind === 'EXPENSE' ? application.amount : null,
@@ -691,7 +704,10 @@ onMounted(async () => {
                 {{ u.name }}
               </option>
             </select></label
-          ><button class="primary" :disabled="busy">保存分流配置</button>
+          ><label>补卡期限（补卡日期结束后自然日数）<input v-model.number="workflow.correctionDays" type="number" min="0" max="365" step="1" required /></label>
+          <label>加班兑换调休比例<input v-model.number="workflow.overtimeRatio" type="number" min="0.01" max="100" step="0.01" required /></label>
+          <p class="muted">加班沿用请假分流阈值，按半天计天数；兑换比例在提交时保存。补卡只审批一次，已批准不可撤销。已使用的加班额度须先恢复余额才能撤销。</p>
+          <button class="primary" :disabled="busy">保存分流配置</button>
         </form>
       </section>
       <section v-else-if="page === 'simulator'" class="card form-card">
@@ -774,7 +790,7 @@ onMounted(async () => {
             >
               导出 CSV</button
             ><button
-              v-if="isAdmin && !['punches', 'audit', 'notifications'].includes(page)"
+              v-if="isAdmin && !['punches', 'audit', 'notifications', 'balance-history'].includes(page)"
               class="primary"
               @click="openCreate"
             >
@@ -802,7 +818,7 @@ onMounted(async () => {
               <option value="">全部类型</option>
               <option
                 v-for="k in page === 'requests'
-                  ? ['LEAVE', 'TRAVEL', 'OUTING', 'EXPENSE']
+                  ? ['LEAVE', 'TRAVEL', 'OUTING', 'EXPENSE', 'OVERTIME', 'CORRECTION']
                   : ['NORMAL', 'FIELD']"
                 :key="k"
                 :value="k"
@@ -1005,6 +1021,8 @@ onMounted(async () => {
               <button class="primary" :disabled="busy">{{ detail.payment_status === 'PAID' ? '改回待支付' : '标记已支付' }}</button>
             </form>
           </template>
+          <p v-if="detail.kind === 'CORRECTION'">补卡类型：{{ display(detail.punch_kind) }}；批准后记录为补卡，不含现场定位。</p>
+          <p v-if="detail.kind === 'OVERTIME'">兑换比例：{{ detail.overtime_ratio }}；最终批准计入 {{ detail.credited_days }} 天调休（开始年度）。</p>
           <h3>抄送名单</h3><p>{{ detail.cc?.map((u: Row) => u.name + '（' + u.employee_no + '）').join('、') || '无' }}</p>
           <h3>审批记录</h3>
           <ol class="timeline">
@@ -1032,9 +1050,9 @@ onMounted(async () => {
               /></label
             ><button class="primary" :disabled="busy">提交审批</button>
           </form>
-          <div v-if="isAdmin && (detail.status === 'PENDING' || (detail.status === 'APPROVED' && detail.kind !== 'EXPENSE'))" class="cancel-area">
+          <div v-if="isAdmin && (detail.status === 'PENDING' || (detail.status === 'APPROVED' && !['EXPENSE','CORRECTION'].includes(detail.kind) && new Date(detail.start_at).getTime() > Date.now()))" class="cancel-area">
             <p class="muted">
-              待审批可撤回；已批准的申请仅在尚未开始时可撤销。已批准的报销不可撤销。
+              待审批可撤回；已批准的申请仅在尚未开始时可撤销。已批准的报销和补卡不可撤销；加班撤销退回已兑换调休。
             </p>
             <button class="danger" :disabled="busy" @click="cancelRequest">
               {{ detail.status === 'PENDING' ? '撤回申请' : '撤销申请' }}
@@ -1189,7 +1207,7 @@ onMounted(async () => {
                 type="number"
                 min="0"
                 max="9999"
-                step="0.5"
+                step="0.0001"
                 required /></label
           ></template>
           <template v-if="modal === 'requests'"
@@ -1206,6 +1224,8 @@ onMounted(async () => {
                 <option value="TRAVEL">出差</option>
                 <option value="OUTING">外出</option>
                 <option value="EXPENSE">报销</option>
+                <option value="OVERTIME">加班</option>
+                <option value="CORRECTION">补卡</option>
               </select></label
             ><label v-if="application.kind === 'LEAVE'"
               >假期类型<select v-model="application.typeId" required>
@@ -1216,7 +1236,11 @@ onMounted(async () => {
                   }}
                 </option>
               </select></label
-            ><template v-if="application.kind !== 'EXPENSE'"
+            ><template v-if="application.kind === 'CORRECTION'">
+              <label>补卡类型<select v-model="application.punchKind"><option value="NORMAL">正常打卡</option><option value="FIELD">出勤</option></select></label>
+              <label>补卡时间（北京时间）<input v-model="application.correctionAt" type="datetime-local" required /></label>
+              <p class="muted">仅可补交过去时刻；出勤须在本人有效的已批准出差或外出时段内。不要求当前定位和历史网络。</p>
+            </template><template v-else-if="application.kind !== 'EXPENSE'"
               ><div class="form-grid">
                 <label>开始日期<input v-model="application.startDate" type="date" required /></label
                 ><label
@@ -1233,7 +1257,7 @@ onMounted(async () => {
                 >
               </div>
               <p class="muted">
-                按自然日计算，含周末；上午、下午各半天。跨年请分开申请。
+                按自然日计算，含周末；上午、下午各半天。请假、出差、外出跨年请分开申请；加班计入开始年度调休。
               </p></template
             ><template v-else><label
               >报销金额（元）<input

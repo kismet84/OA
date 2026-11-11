@@ -38,10 +38,16 @@ class ExportController {
           Map.entry("accuracy", "精度（米）"),
           Map.entry("ssid", "Wi-Fi 名称"),
           Map.entry("exit_ip", "出口 IP"),
+          Map.entry("punch_kind", "补卡类型"),
+          Map.entry("overtime_ratio", "加班兑换比例"),
+          Map.entry("credited_days", "兑换调休天数"),
+          Map.entry("correction_request_id", "补卡申请编号（空为现场打卡）"),
           Map.entry("simulated", "模拟记录"));
   static final Map<String, String> VALUES =
       Map.ofEntries(
           Map.entry("LEAVE", "请假"),
+          Map.entry("OVERTIME", "加班"),
+          Map.entry("CORRECTION", "补卡"),
           Map.entry("TRAVEL", "出差"),
           Map.entry("OUTING", "外出"),
           Map.entry("EXPENSE", "报销"),
@@ -55,7 +61,7 @@ class ExportController {
 
   static String value(String key, Object v) {
     if (v instanceof Boolean b) return b ? "是" : "否";
-    if (v != null && Set.of("kind", "status").contains(key))
+    if (v != null && Set.of("kind", "status", "punch_kind").contains(key))
       return VALUES.getOrDefault(v.toString(), v.toString());
     return v == null ? "" : v.toString();
   }

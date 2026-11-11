@@ -27,7 +27,7 @@ public class WorkflowService {
 
   public record Application(
       Long userId,
-      @NotNull @Pattern(regexp = "LEAVE|TRAVEL|OUTING|EXPENSE") String kind,
+      @NotNull @Pattern(regexp = "LEAVE|TRAVEL|OUTING|EXPENSE|OVERTIME|CORRECTION") String kind,
       Long typeId,
       LocalDateTime startAt,
       LocalDateTime endAt,
@@ -36,15 +36,20 @@ public class WorkflowService {
       UUID attachmentId,
       @Size(max = 100) List<@NotNull @Valid ExpenseItem> items,
       @Size(max = 30) List<@NotNull UUID> attachmentIds,
-      @Size(max = 100) List<@NotNull Long> ccUserIds) {}
+      @Size(max = 100) List<@NotNull Long> ccUserIds,
+      @Pattern(regexp = "NORMAL|FIELD") String punchKind) {}
 
   public record ExpenseItem(
       @NotBlank @Size(max = 200) String description,
       @NotNull @DecimalMin("0.01") @DecimalMax("99999999") @Digits(integer = 8, fraction = 2) BigDecimal amount) {}
 
   public static BigDecimal days(LocalDateTime start, LocalDateTime end) {
+    return calendarDays(start, end, false);
+  }
+
+  static BigDecimal calendarDays(LocalDateTime start, LocalDateTime end, boolean crossYear) {
     ApiException.require(start != null && end != null && end.isAfter(start), "起止时间无效");
-    ApiException.require(start.getYear() == end.getYear(), "跨年申请请按年度拆分");
+    ApiException.require(crossYear || start.getYear() == end.getYear(), "跨年申请请按年度拆分");
     ApiException.require(
         (start.toLocalTime().equals(LocalTime.of(9, 0))
                 || start.toLocalTime().equals(LocalTime.of(13, 0)))
@@ -70,16 +75,24 @@ public class WorkflowService {
       ApiException.require(recipient != user, "抄送人不能是申请人本人");
       ApiException.require(db.queryForObject("SELECT count(*) FROM users WHERE id=? AND enabled", Long.class, recipient) == 1, "抄送人不存在或已停用");
     }
+    var config = db.queryForMap("SELECT * FROM workflow_config WHERE id=1");
+    boolean correction = in.kind().equals("CORRECTION");
+    boolean overtime = in.kind().equals("OVERTIME");
     BigDecimal duration = null;
     Map<String, Object> type = null;
-    if (!in.kind().equals("EXPENSE")) {
-      duration = days(in.startAt(), in.endAt());
-      ApiException.require(in.endAt().isAfter(LocalDateTime.now(clock)), "结束时间必须晚于当前时间");
+    if (correction) {
+      ApiException.require(in.startAt() != null && in.punchKind() != null, "请选择补卡时间和类型");
+      validateCorrectionTime(in.startAt(), LocalDateTime.now(clock), ((Number) config.get("correction_days")).intValue());
+      checkCorrection(user, in.startAt(), in.punchKind(), 0);
+    } else if (!in.kind().equals("EXPENSE")) {
+      duration = calendarDays(in.startAt(), in.endAt(), overtime);
+      ApiException.require(overtime || in.endAt().isAfter(LocalDateTime.now(clock)), "结束时间必须晚于当前时间");
       ApiException.require(duration.compareTo(new BigDecimal("366")) <= 0, "申请时间过长");
       ApiException.require(
           db.queryForObject(
                   "SELECT count(*) FROM requests WHERE user_id=? AND status IN"
-                      + " ('PENDING','APPROVED') AND kind IN ('LEAVE','TRAVEL','OUTING') AND"
+                      + " ('PENDING','APPROVED') AND "
+                      + (overtime ? "kind IN ('LEAVE','OVERTIME')" : in.kind().equals("LEAVE") ? "kind IN ('LEAVE','TRAVEL','OUTING','OVERTIME')" : "kind IN ('LEAVE','TRAVEL','OUTING')") + " AND"
                       + " start_at<? AND end_at>?",
                   Long.class,
                   user,
@@ -128,12 +141,15 @@ public class WorkflowService {
         db.queryForObject(
             "SELECT head_id FROM departments WHERE id=?", Long.class, u.get("department_id"));
     Long first = manager == null ? head : manager;
+    if (correction && first == null) {
+      var admins = db.queryForList("SELECT id FROM users WHERE enabled AND 'ADMIN'=ANY(string_to_array(roles,',')) AND id<>? ORDER BY id LIMIT 1", user);
+      first = admins.isEmpty() ? null : ((Number) admins.getFirst().get("id")).longValue();
+    }
     ApiException.require(first != null && first != user, "请管理员配置有效的直属上级或部门负责人，禁止自批");
     ApiException.require(
-        auth.user(first).has("SUPERVISOR") || auth.user(first).has("DEPT_HEAD"), "第一审批人角色无效");
+        auth.user(first).has("SUPERVISOR") || auth.user(first).has("DEPT_HEAD") || (correction && auth.user(first).admin()), "第一审批人角色无效");
     List<Long> chain = new ArrayList<>();
     chain.add(first);
-    var config = db.queryForMap("SELECT * FROM workflow_config WHERE id=1");
     if (in.kind().equals("EXPENSE")) {
       if (in.amount().compareTo((BigDecimal) config.get("expense_threshold")) > 0) {
         Long finance = (Long) config.get("finance_id");
@@ -141,10 +157,10 @@ public class WorkflowService {
         ApiException.require(auth.user(finance).has("FINANCE"), "财务或行政审批人角色无效");
         if (!chain.contains(finance)) chain.add(finance);
       }
-    } else {
+    } else if (!correction) {
       BigDecimal threshold =
           (BigDecimal)
-              config.get(in.kind().equals("LEAVE") ? "leave_threshold" : "travel_threshold");
+              config.get((in.kind().equals("LEAVE") || overtime) ? "leave_threshold" : "travel_threshold");
       // A supervisor who is already any department head is sufficient; no second signature.
       if (duration.compareTo(threshold) > 0
           && head != null
@@ -164,13 +180,15 @@ public class WorkflowService {
             in.kind(),
             type == null ? null : in.typeId(),
             in.kind().equals("EXPENSE") ? null : in.startAt(),
-            in.kind().equals("EXPENSE") ? null : in.endAt(),
+            in.kind().equals("EXPENSE") || correction ? null : in.endAt(),
             duration,
             in.kind().equals("EXPENSE") ? in.amount() : null,
             in.reason(),
             in.attachmentId(),
             type != null && (boolean) type.get("deduct_balance"),
             type == null ? null : type.get("annual_limit"));
+    if (correction) db.update("UPDATE requests SET punch_kind=? WHERE id=?", in.punchKind(), id);
+    if (overtime) db.update("UPDATE requests SET overtime_ratio=?,credited_days=? WHERE id=?", config.get("overtime_ratio"), duration.multiply((BigDecimal) config.get("overtime_ratio")), id);
     if (in.kind().equals("EXPENSE")) {
       for (int n = 0; n < in.items().size(); n++) {
         var item = in.items().get(n);
@@ -250,6 +268,7 @@ public class WorkflowService {
 
   @Transactional
   public void decide(long id, Decision in, Actor actor) {
+    db.execute("SELECT pg_advisory_xact_lock(20261111)");
     if (!actor.admin()
         && !actor.has("SUPERVISOR")
         && !actor.has("DEPT_HEAD")
@@ -285,12 +304,15 @@ public class WorkflowService {
           (boolean) r.get("deduct_balance"),
           (BigDecimal) r.get("annual_limit"));
       if ((boolean) r.get("deduct_balance"))
-        db.update(
-            "UPDATE balances SET amount=amount-? WHERE user_id=? AND type_id=? AND year=?",
-            r.get("days"),
-            owner,
-            type,
-            year);
+        changeBalance(owner, type, year, ((BigDecimal) r.get("days")).negate(), id, actor.id(), "LEAVE_APPROVED");
+    }
+    if (finalApproval && r.get("kind").equals("CORRECTION")) {
+      var at = ((Timestamp) r.get("start_at")).toLocalDateTime();
+      checkCorrection(owner, at, (String) r.get("punch_kind"), id);
+      db.update("INSERT INTO punches(user_id,punched_at,kind,correction_request_id) VALUES(?,?,?,?)", owner, at, r.get("punch_kind"), id);
+    }
+    if (finalApproval && r.get("kind").equals("OVERTIME")) {
+      changeBalance(owner, compType(), ((Timestamp) r.get("start_at")).toLocalDateTime().getYear(), (BigDecimal) r.get("credited_days"), id, actor.id(), "OVERTIME_APPROVED");
     }
     db.update(
         "UPDATE approval_steps SET status=?,comment=?,acted_at=? WHERE request_id=? AND step=?",
@@ -334,12 +356,14 @@ public class WorkflowService {
 
   @Transactional
   public void cancel(long id, Actor actor) {
+    db.execute("SELECT pg_advisory_xact_lock(20261111)");
     var r = get(id, actor, true);
     long owner = ((Number) r.get("user_id")).longValue();
     if (owner != actor.id()) actor.requireAdmin();
     String status = (String) r.get("status");
     ApiException.require(status.equals("PENDING") || status.equals("APPROVED"), "该状态不可撤回或撤销");
     if (status.equals("APPROVED")) {
+      ApiException.require(!r.get("kind").equals("CORRECTION"), "补卡已写入打卡记录，不可撤销");
       ApiException.require(
           r.get("start_at") != null
               && ((Timestamp) r.get("start_at"))
@@ -347,13 +371,11 @@ public class WorkflowService {
                   .isAfter(LocalDateTime.now(clock)),
           "申请已开始或报销已批准，不可撤销");
       lockedUser(owner);
+      int year = ((Timestamp) r.get("start_at")).toLocalDateTime().getYear();
       if ((boolean) r.get("deduct_balance"))
-        db.update(
-            "UPDATE balances SET amount=amount+? WHERE user_id=? AND type_id=? AND year=?",
-            r.get("days"),
-            owner,
-            r.get("type_id"),
-            ((Timestamp) r.get("start_at")).toLocalDateTime().getYear());
+        changeBalance(owner, ((Number) r.get("type_id")).longValue(), year, (BigDecimal) r.get("days"), id, actor.id(), "LEAVE_CANCELLED");
+      if (r.get("kind").equals("OVERTIME"))
+        changeBalance(owner, compType(), year, ((BigDecimal) r.get("credited_days")).negate(), id, actor.id(), "OVERTIME_CANCELLED");
     }
     for (var s :
         db.queryForList(
@@ -368,6 +390,32 @@ public class WorkflowService {
         status.equals("PENDING") ? "WITHDRAWN" : "CANCELLED",
         id);
     auth.audit(actor.id(), "CANCEL_REQUEST", id);
+  }
+
+  static void validateCorrectionTime(LocalDateTime at, LocalDateTime now, int deadlineDays) {
+    ApiException.require(!at.isAfter(now), "不能为未来时间补卡");
+    ApiException.require(!now.toLocalDate().isAfter(at.toLocalDate().plusDays(deadlineDays)), "已超过补卡期限");
+  }
+
+  void checkCorrection(long user, LocalDateTime at, String kind, long exclude) {
+    ApiException.require(db.queryForObject("SELECT count(*) FROM punches WHERE user_id=? AND punched_at=? AND kind=?", Long.class, user, at, kind) == 0, "该时刻已有同类型打卡记录");
+    ApiException.require(db.queryForObject("SELECT count(*) FROM requests WHERE user_id=? AND kind='CORRECTION' AND start_at=? AND punch_kind=? AND status IN ('PENDING','APPROVED') AND id<>?", Long.class, user, at, kind, exclude) == 0, "该时刻已有待批或已批准的补卡");
+    if (kind.equals("FIELD"))
+      ApiException.require(db.queryForObject("SELECT count(*) FROM requests WHERE user_id=? AND kind IN ('TRAVEL','OUTING') AND status='APPROVED' AND start_at<=? AND end_at>?", Long.class, user, at, at) > 0, "补卡时刻没有有效的已批准出差或外出申请");
+  }
+
+  long compType() {
+    return db.queryForObject("SELECT id FROM leave_types WHERE code='COMP'", Long.class);
+  }
+
+  // Caller locks the owner first. Balance row locks also protect concurrent quota changes.
+  void changeBalance(long user, long type, int year, BigDecimal delta, long request, long actor, String reason) {
+    db.update("INSERT INTO balances(user_id,type_id,year,amount) VALUES(?,?,?,0) ON CONFLICT DO NOTHING", user, type, year);
+    var before = db.queryForObject("SELECT amount FROM balances WHERE user_id=? AND type_id=? AND year=? FOR UPDATE", BigDecimal.class, user, type, year);
+    var after = before.add(delta);
+    ApiException.require(after.signum() >= 0, "调休余额不足，无法退回已兑换额度，请先处理已使用的调休");
+    db.update("UPDATE balances SET amount=? WHERE user_id=? AND type_id=? AND year=?", after, user, type, year);
+    db.update("INSERT INTO balance_changes(user_id,type_id,year,delta,balance_after,request_id,actor_id,reason) VALUES(?,?,?,?,?,?,?,?)", user, type, year, delta, after, request, actor, reason);
   }
 
   void notify(long user, String message) {

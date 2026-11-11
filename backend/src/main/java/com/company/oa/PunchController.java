@@ -34,6 +34,8 @@ class PunchService {
   @Transactional
   long record(Actor actor, long user, Punch input, String ip, boolean simulated) {
     if (user != actor.id()) actor.requireAdmin();
+    db.execute("SELECT pg_advisory_xact_lock(20261111)");
+    db.queryForList("SELECT id FROM users WHERE id=? FOR UPDATE", user);
     auth.user(user); // Disabled accounts cannot punch, including in the simulator.
     ApiException.require(
         Double.isFinite(input.latitude())

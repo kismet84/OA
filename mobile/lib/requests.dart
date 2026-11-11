@@ -15,14 +15,21 @@ class ExpenseLine {
 
 class RequestFormPage extends StatefulWidget {
   final Api api;
-  const RequestFormPage({super.key, required this.api});
+  final String initialKind;
+  const RequestFormPage({
+    super.key,
+    required this.api,
+    this.initialKind = 'LEAVE',
+  });
   @override
   State<RequestFormPage> createState() => _RequestFormState();
 }
 
 class _RequestFormState extends State<RequestFormPage>
     with Guard<RequestFormPage> {
-  String kind = 'LEAVE';
+  String kind = 'LEAVE', punchKind = 'NORMAL';
+  DateTime correctionAt = shanghaiNow().subtract(const Duration(hours: 1));
+  Json? policy;
   int? typeId;
   List<Json> types = [], colleagues = [];
   final reason = TextEditingController(), amount = TextEditingController();
@@ -40,10 +47,12 @@ class _RequestFormState extends State<RequestFormPage>
   @override
   void initState() {
     super.initState();
+    kind = widget.initialKind;
     load();
   }
 
   Future<void> load() => run(() async {
+    policy = await widget.api.call('/attendance-policy');
     types = records(await widget.api.call('/leave-types'));
     colleagues = records(await widget.api.call('/colleagues'));
     typeId = types.isEmpty ? null : types.first['id'];
@@ -76,6 +85,25 @@ class _RequestFormState extends State<RequestFormPage>
           end = d;
         }
       });
+    }
+  }
+
+  Future<void> pickCorrection() async {
+    final d = await showDatePicker(
+      context: context,
+      initialDate: correctionAt,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+    );
+    if (d == null || !mounted) return;
+    final t = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(correctionAt),
+    );
+    if (t != null && mounted) {
+      setState(
+        () => correctionAt = DateTime(d.year, d.month, d.day, t.hour, t.minute),
+      );
     }
   }
 
@@ -168,7 +196,10 @@ class _RequestFormState extends State<RequestFormPage>
       kind: kind,
       reason: reason.text,
       typeId: typeId,
-      startAt: '${date(start)}T$startTime:00',
+      startAt: kind == 'CORRECTION'
+          ? correctionAt.toIso8601String().replaceAll('Z', '')
+          : '${date(start)}T$startTime:00',
+      punchKind: punchKind,
       endAt: '${date(end)}T$endTime:00',
       amount: amount.text,
       items: lines
@@ -206,7 +237,14 @@ class _RequestFormState extends State<RequestFormPage>
             initialValue: kind,
             decoration: const InputDecoration(labelText: '申请类型'),
             items: [
-              for (final k in ['LEAVE', 'TRAVEL', 'OUTING', 'EXPENSE'])
+              for (final k in [
+                'LEAVE',
+                'TRAVEL',
+                'OUTING',
+                'EXPENSE',
+                'OVERTIME',
+                'CORRECTION',
+              ])
                 DropdownMenuItem(value: k, child: Text(textOf(k))),
             ],
             onChanged: (v) => setState(() {
@@ -232,7 +270,25 @@ class _RequestFormState extends State<RequestFormPage>
             ),
             if (types.isEmpty && ready) const Text('暂无启用的假期类型，请联系管理员'),
           ],
-          if (kind != 'EXPENSE') ...[
+          if (kind == 'CORRECTION') ...[
+            section('补卡 · 北京时间'),
+            DropdownButtonFormField<String>(
+              initialValue: punchKind,
+              decoration: const InputDecoration(labelText: '补卡类型'),
+              items: [
+                for (final k in ['NORMAL', 'FIELD'])
+                  DropdownMenuItem(value: k, child: Text(textOf(k))),
+              ],
+              onChanged: (v) => setState(() => punchKind = v!),
+            ),
+            OutlinedButton(
+              onPressed: pickCorrection,
+              child: Text('补卡时间 ${timeOf(correctionAt.toIso8601String())}'),
+            ),
+            Text(
+              '补卡日期结束后 ${policy?['correction_days'] ?? 3} 个自然日内提交。出勤须有该时刻有效的已批准出差或外出。无需当前位置或历史网络；批准后不可撤销。',
+            ),
+          ] else if (kind != 'EXPENSE') ...[
             section('起止时段 · 北京时间'),
             Row(
               children: [
@@ -272,7 +328,11 @@ class _RequestFormState extends State<RequestFormPage>
                 ),
               ],
             ),
-            const Text('上午、下午各半天，按自然日含周末。跨年请拆单；天数由服务端计算。'),
+            const Text('上午、下午各半天，按自然日含周末。请假、出差、外出跨年请拆单；天数由服务端计算。'),
+            if (kind == 'OVERTIME')
+              Text(
+                '加班按 ${policy?['overtime_ratio'] ?? 1}:1 计入开始年度调休；沿用请假分流阈值 ${policy?['leave_threshold'] ?? 1} 天。允许过去时段，须有结束时间。',
+              ),
           ] else ...[
             field(
               amount,
@@ -402,14 +462,11 @@ class _DetailState extends State<RequestDetailPage>
   bool get canCancel {
     if (!own || detail == null) return false;
     if (detail!['status'] == 'PENDING') return true;
-    if (detail!['status'] != 'APPROVED' || detail!['kind'] == 'EXPENSE') {
+    if (detail!['status'] != 'APPROVED' ||
+        ['EXPENSE', 'CORRECTION'].contains(detail!['kind'])) {
       return false;
     }
-    final start = DateTime.tryParse('${detail!['start_at']}');
-    return start != null &&
-        start.isAfter(
-          DateTime.parse(shanghaiNow().toIso8601String().replaceAll('Z', '')),
-        );
+    return canCancelApproved(detail!);
   }
 
   @override
@@ -437,7 +494,15 @@ class _DetailState extends State<RequestDetailPage>
           Text(
             '申请人：${detail!['user_name']}\n提交：${timeOf(detail!['created_at'])}',
           ),
-          if (detail!['kind'] != 'EXPENSE')
+          if (detail!['kind'] == 'CORRECTION')
+            Text(
+              '补卡时间：${timeOf(detail!['start_at'])}（北京时间）\n类型：${textOf(detail!['punch_kind'])}\n批准后写入补卡记录，不含现场定位。',
+            ),
+          if (detail!['kind'] == 'OVERTIME')
+            Text(
+              '兑换比例：${detail!['overtime_ratio']}；批准计入 ${detail!['credited_days']} 天调休（开始年度）',
+            ),
+          if (!['EXPENSE', 'CORRECTION'].contains(detail!['kind']))
             Text(
               '开始：${timeOf(detail!['start_at'])}\n结束：${timeOf(detail!['end_at'])}\n天数：${detail!['days']} 天（北京时间）',
             ),
@@ -552,7 +617,7 @@ class _DetailState extends State<RequestDetailPage>
                       if (!await confirm(
                         context,
                         '撤回 / 撤销申请',
-                        '待审批可撤回；尚未开始的已批准申请可撤销并按规则返还余额。',
+                        '待审批可撤回；尚未开始的已批准申请可撤销；加班会退回已兑换调休，须有足够余额。补卡批准后不可撤销。',
                       )) {
                         return;
                       }

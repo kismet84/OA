@@ -13,7 +13,7 @@ void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
   });
-  testWidgets('恢复登录后显示待办与未读汇总和五个入口', (tester) async {
+  testWidgets('恢复登录后显示待办与未读汇总及新旧入口', (tester) async {
     final api = Api(
       client: MockClient((r) async {
         expect(r.url.path, '/api/messages/summary');
@@ -46,7 +46,14 @@ void main() {
       '消息中心',
       '通讯录',
       '个人中心',
+      '补卡',
+      '加班',
     ]) {
+      await tester.scrollUntilVisible(
+        find.text(label),
+        150,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.text(label), findsOneWidget);
     }
     expect(tester.takeException(), isNull);

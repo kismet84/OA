@@ -7,6 +7,8 @@ import 'package:path_provider/path_provider.dart';
 import 'api.dart';
 
 const labels = {
+  'OVERTIME': '加班',
+  'CORRECTION': '补卡',
   'LEAVE': '请假',
   'TRAVEL': '出差',
   'OUTING': '外出',

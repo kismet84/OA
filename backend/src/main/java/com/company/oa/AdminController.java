@@ -411,8 +411,12 @@ class AdminController {
   @PutMapping("/balances")
   @Transactional
   Object balance(@Valid @RequestBody Balance in, HttpServletRequest req) {
-    half(in.amount());
+    orgLock();
     db.queryForList("SELECT id FROM users WHERE id=? FOR UPDATE", in.userId());
+    var old = db.queryForList("SELECT amount FROM balances WHERE user_id=? AND type_id=? AND year=? FOR UPDATE", in.userId(), in.typeId(), in.year());
+    BigDecimal before = old.isEmpty() ? BigDecimal.ZERO : (BigDecimal) old.getFirst().get("amount");
+    if (!"COMP".equals(db.queryForObject("SELECT code FROM leave_types WHERE id=?", String.class, in.typeId()))) half(in.amount());
+    ApiException.require(in.amount().scale() <= 4, "余额最多四位小数");
     db.update(
         "INSERT INTO balances(user_id,type_id,year,amount) VALUES(?,?,?,?) ON"
             + " CONFLICT(user_id,type_id,year) DO UPDATE SET amount=excluded.amount",
@@ -420,6 +424,7 @@ class AdminController {
         in.typeId(),
         in.year(),
         in.amount());
+    db.update("INSERT INTO balance_changes(user_id,type_id,year,delta,balance_after,actor_id,reason) VALUES(?,?,?,?,?,?, 'ADMIN_SET')", in.userId(), in.typeId(), in.year(), in.amount().subtract(before), in.amount(), Auth.actor(req).id());
     auth.audit(Auth.actor(req).id(), "SET_REMAINING_BALANCE", in.toString());
     return Map.of("message", "余额已保存");
   }
@@ -428,7 +433,9 @@ class AdminController {
       @NotNull @DecimalMin("0.5") BigDecimal leaveThreshold,
       @NotNull @DecimalMin("0.5") BigDecimal travelThreshold,
       @NotNull @DecimalMin("0") BigDecimal expenseThreshold,
-      Long financeId) {}
+      Long financeId,
+      @Min(0) @Max(365) Integer correctionDays,
+      @DecimalMin("0.01") @DecimalMax("100") @Digits(integer=3, fraction=2) BigDecimal overtimeRatio) {}
 
   @GetMapping("/workflow")
   Object workflow() {
@@ -444,13 +451,18 @@ class AdminController {
     half(in.travelThreshold());
     db.update(
         "UPDATE workflow_config SET"
-            + " leave_threshold=?,travel_threshold=?,expense_threshold=?,finance_id=? WHERE id=1",
+            + " leave_threshold=?,travel_threshold=?,expense_threshold=?,finance_id=?,correction_days=coalesce(?,correction_days),overtime_ratio=coalesce(?,overtime_ratio) WHERE id=1",
         in.leaveThreshold(),
         in.travelThreshold(),
         in.expenseThreshold(),
-        in.financeId());
+        in.financeId(), in.correctionDays(), in.overtimeRatio());
     auth.audit(Auth.actor(req).id(), "SAVE_WORKFLOW", in.toString());
     return Map.of("message", "审批分流已保存");
+  }
+
+  @GetMapping("/balance-history")
+  Object balanceHistory(@RequestParam(required=false) Long userId) {
+    return db.queryForList("SELECT b.*,u.name user_name,t.name type_name,a.name actor_name FROM balance_changes b JOIN users u ON u.id=b.user_id JOIN leave_types t ON t.id=b.type_id JOIN users a ON a.id=b.actor_id WHERE (?::bigint IS NULL OR b.user_id=?) ORDER BY b.id DESC LIMIT 500", userId, userId);
   }
 
   @GetMapping("/audit")

@@ -110,6 +110,16 @@ class _HomeState extends State<HomePage> with Guard<HomePage> {
           for (final entry in <(String, IconData, Widget)>[
             ('打卡', Icons.location_on_outlined, PunchPage(api: widget.api)),
             (
+              '补卡',
+              Icons.edit_calendar_outlined,
+              RequestFormPage(api: widget.api, initialKind: 'CORRECTION'),
+            ),
+            (
+              '加班',
+              Icons.more_time,
+              RequestFormPage(api: widget.api, initialKind: 'OVERTIME'),
+            ),
+            (
               '审批与申请',
               Icons.fact_check_outlined,
               MessagePage(
@@ -263,7 +273,9 @@ class _PunchState extends State<PunchPage> with Guard<PunchPage> {
           Card(
             child: ListTile(
               title: Text(textOf(p['kind'])),
-              subtitle: Text(timeOf(p['punched_at'])),
+              subtitle: Text(
+                '${timeOf(p['punched_at'])} · ${p['correction_request_id'] == null ? '现场打卡' : '补卡 #${p['correction_request_id']}'}',
+              ),
             ),
           ),
       ],
@@ -694,7 +706,16 @@ class _ProfileState extends State<ProfilePage> with Guard<ProfilePage> {
   });
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('个人中心')),
+    appBar: AppBar(
+      title: const Text('个人中心'),
+      actions: [
+        IconButton(
+          tooltip: '刷新余额',
+          onPressed: busy ? null : load,
+          icon: const Icon(Icons.refresh),
+        ),
+      ],
+    ),
     body: ListView(
       padding: const EdgeInsets.all(20),
       children: [

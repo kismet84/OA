@@ -36,6 +36,16 @@ class RequestController {
         Auth.actor(req).id());
   }
 
+  @GetMapping("/attendance-policy")
+  Object attendancePolicy() {
+    return db.queryForMap("SELECT correction_days,overtime_ratio,leave_threshold FROM workflow_config WHERE id=1");
+  }
+
+  @GetMapping("/balance-history")
+  Object balanceHistory(HttpServletRequest req) {
+    return db.queryForList("SELECT b.*,t.name type_name FROM balance_changes b JOIN leave_types t ON t.id=b.type_id WHERE b.user_id=? ORDER BY b.id DESC LIMIT 500", Auth.actor(req).id());
+  }
+
   @PostMapping("/requests")
   Object submit(@Valid @RequestBody WorkflowService.Application in, HttpServletRequest req) {
     return Map.of("id", workflow.submit(in, Auth.actor(req)));
