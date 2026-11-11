@@ -3,6 +3,8 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import { api, download, display, labels, setToken, type Actor, type Row } from './api';
 import DataTable from './DataTable.vue';
 import MessageCenter from './MessageCenter.vue';
+import Calendar from './Calendar.vue';
+const meetingId = ref<number | null>(null);
 
 const me = ref<Actor | null>(null),
   development = ref(false),
@@ -108,6 +110,7 @@ const filters = reactive({ userId: '', status: '', kind: '', from: '', to: '' })
 const roleOptions = ['EMPLOYEE', 'SUPERVISOR', 'DEPT_HEAD', 'ADMIN', 'FINANCE'];
 const nav = computed(() => isAdmin.value ? [
   { key: 'overview', title: '工作台', icon: '概' },
+  { key: 'calendar', title: '日程与会议', icon: '会' },
   { key: 'departments', title: '部门组织', icon: '组' },
   { key: 'users', title: '账号与角色', icon: '人' },
   { key: 'networks', title: '公司网络', icon: '网' },
@@ -282,6 +285,7 @@ function query(exporting = false) {
   return '?' + p;
 }
 async function load() {
+  if (page.value === 'calendar') return;
   loading.value = true;
   try {
     if (page.value === 'workflow') {
@@ -586,6 +590,7 @@ onMounted(async () => {
           v-for="n in nav"
           :key="n.key"
           :class="{ active: page === n.key }"
+          :disabled="busy"
           @click="run(() => navigate(n.key))"
         >
           <span class="nav-icon">{{ n.icon }}</span
@@ -762,7 +767,8 @@ onMounted(async () => {
           ><button class="primary" :disabled="busy">提交模拟打卡</button>
         </form>
       </section>
-      <MessageCenter v-else-if="['messages','announcements'].includes(page)" :key="page" :management="page==='announcements'" :departments="departments" @open-request="showDetail" />
+      <Calendar v-else-if="page==='calendar' && me" :me="me" :management="isAdmin" :meeting-id="meetingId" />
+      <MessageCenter @open-meeting="id=>{meetingId=id;page='calendar'}" v-else-if="['messages','announcements'].includes(page)" :key="page" :management="page==='announcements'" :departments="departments" @open-request="showDetail" />
       <section v-else class="card records">
         <div class="section-toolbar">
           <div>

@@ -7,6 +7,7 @@ import 'ui.dart';
 import 'validation.dart';
 import 'main.dart' show PasswordPage;
 import 'requests.dart';
+import 'calendar.dart';
 
 class HomePage extends StatefulWidget {
   final Api api;
@@ -108,6 +109,11 @@ class _HomeState extends State<HomePage> with Guard<HomePage> {
           ),
           section('常用功能'),
           for (final entry in <(String, IconData, Widget)>[
+            (
+              '日程与会议',
+              Icons.calendar_month,
+              CalendarPage(api: widget.api, user: widget.user),
+            ),
             ('打卡', Icons.location_on_outlined, PunchPage(api: widget.api)),
             (
               '补卡',
@@ -330,7 +336,16 @@ class _MessageState extends State<MessagePage> with Guard<MessagePage> {
           );
         }
         if (!mounted) return;
-        if (row['request_id'] != null) {
+        if (row['meeting_id'] != null) {
+          await go(
+            context,
+            MeetingPage(
+              api: widget.api,
+              user: widget.user,
+              id: row['meeting_id'] as int,
+            ),
+          );
+        } else if (row['request_id'] != null) {
           await go(
             context,
             RequestDetailPage(

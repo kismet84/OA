@@ -59,6 +59,13 @@ export async function download(path: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 export const labels: Record<string, string> = {
+  CREATE_MEETING: '创建会议',
+  UPDATE_MEETING: '修改会议',
+  CANCEL_MEETING: '取消会议',
+  REPLY_MEETING: '回复参会邀请',
+  SAVE_MEETING_ROOM: '维护会议室',
+  DISABLE_MEETING_ROOM: '停用会议室',
+  DELETE_MEETING_ROOM: '删除会议室',
   PUBLISH_ANNOUNCEMENT: '发布公告',
   WITHDRAW_ANNOUNCEMENT: '撤回公告',
   UNPAID: '待支付',

@@ -230,3 +230,46 @@ Flyway V3 新增公告、接收人快照、公告附件及申请抄送关联表�
 员工网页入口 `/staff/`（开发 Vite 与 HTTPS 静态资源构建均支持），管理入口 `/` 不变。网页与 Flutter 使用本文相同接口及权限，本次未新增或改变业务 API、数据库迁移或默认审批规则。员工网页登录携带 `platform: "Web"` 和可编辑 `deviceName`，令牌存当前浏览器会话 `oa-staff-token`；固定8小时及设备退出均由原会话接口执行。首次改密前不调用业务接口。
 
 网页使用 `/messages` 分类查询、`/requests` 自助提交/详情/审批/撤回、`/announcements` 回执、`/directory`、`/profile`、`/balances`、`/balance-history`、`/attendance-policy` 和 `/auth/sessions`。上传及鉴权下载沿用 `/attachments`。网页不调用 `POST /punches`；只通过 `GET /punches` 查看本人记录。财务支付登记继续使用原管理后台。
+
+## 二期日程、会议室与参会通知
+
+增量迁移 `V6__calendar_and_meetings.sql` 新增会议室、会议、参会回复，向现有 `notifications` 增加可空 `meeting_id`，不改写原有审批、账号、打卡或旧通知。全部接口沿用登录、首次改密和8小时设备会话。下表路径均以 `/api` 为前缀。
+
+| 接口 | 方法 | 参数与返回 |
+| --- | --- | --- |
+| `/meeting-rooms?management=false&offset=0` | GET | 默认只列启用会议室，`management=true` 仅管理员可用，含停用；按 id 排序，每页最多200条 |
+| `/meeting-rooms` | POST | 管理员新增 `{name,location?,capacity?,enabled:true}`；返回 `{id}` |
+| `/meeting-rooms/{id}` | PUT | 管理员修改，完整提交同上字段；`enabled:false` 停用 |
+| `/meeting-rooms/{id}` | DELETE | 管理员操作：无任何会议记录物理删除；有记录（含已取消）则停用，返回中文 `message` |
+| `/meetings?day=2031-02-03&mine=true&offset=0` | GET | 按上海自然日查询；默认 `mine=false`，`includeCancelled=false`。可传 `roomId`、`organizerId` 筛选，按开始时间、id 排序，每页最多200条 |
+| `/meetings?from=2031-02-03T00:00:00&to=2031-02-04T00:00:00` | GET | 半开时间范围查询（`start_at < to AND end_at > from`），允许跨日；`day` 优先。不传范围默认上海当天。`to` 必须晚于 `from` |
+| `/meetings/{id}` | GET | 会议详情；所有已登录员工可查看占用摘要，说明和完整名单仅组织者、参会人和管理员可见 |
+| `/meetings` | POST | 在职登录者创建，组织者自动为本人；输入见下例。返回 `{id,warnings:[中文提示]}` |
+| `/meetings/{id}` | PUT | 组织者或管理员修改，完整提交输入；组织者不变；返回 `{id,warnings}` |
+| `/meetings/{id}/cancel` | POST | 组织者或管理员软取消，立即释放会议室并通知参会人；已取消不可修改或再次取消 |
+| `/meetings/{id}/reply` | POST | 受邀参会人提交 `{response:"ACCEPTED"}` 或 `{response:"DECLINED",reason:"已有安排"}`；不可代回复，组织者无需回复自己，已取消不可回复 |
+
+创建及修改示例（无时区偏移的本地时间，均解释为 **Asia/Shanghai**，响应时间同样不带偏移，客户端不可再按设备时区转换）：
+
+```json
+{
+  "title": "项目评审",
+  "startAt": "2031-02-03T09:00:00",
+  "endAt": "2031-02-03T10:00:00",
+  "roomId": 1,
+  "description": "请准备评审材料",
+  "attendeeIds": [12, 13]
+}
+```
+
+- 标题必填，最多200字；说明最多2000字。会议室、说明和参会人可空；`roomId:null` 表示仅建日程。最多邀请200人，自动去重并移除组织者；组织者始终视为参会人。受邀人必须为在职账号。
+- 开始、结束必填，结束严格晚于开始；允许过去开始、跨日和跨年，不受审批半天规则限制。不做循环会议、视频会议或外部日历同步。
+- 会议室名称必填（最多100字），地点可选（最多200字），容量可空或正整数（最大999999999）；名称去除首尾空格后，在启用会议室中不区分大小写唯一。停用后历史会议可查看、可只改标题/说明/名单，但不能新订或改期到该会议室；可改到其他启用会议室或不订会议室。
+- 会议室占用即时生效，**没有审批链**。同室未取消会议以 `startAt < 其他.endAt AND endAt > 其他.startAt` 判冲突，端点相邻允许；冲突返回409，中文原因含冲突标题及会议编号。所有日程写操作使用 PostgreSQL 事务级 advisory lock 串行校验并写入，覆盖并发首次预定、改期、取消和会议室停用/删除。
+- 个人日程冲突、人数超容量只返回 `warnings`，不阻断。三个客户端保存成功后展示提示。已取消默认隐藏，可通过 `includeCancelled=true` 查询，详情保留。
+- 列表仅包含占用摘要：`id,title,start_at,end_at,room_id,room_name,organizer_id,organizer_name,cancelled_at`，不泄露说明或名单。详情返回 `canEdit`、`canReply`；有权者另见 `description`、`attendees`。每位参会人包含 `user_id,name,employee_no`；组织者/管理员可见全部 `response,reason,responded_at`，普通参会人只见自己的回复及其他人的姓名工号。
+- 回复默认 `PENDING`（待回复），`ACCEPTED`（接受）、`DECLINED`（请假）；请假原因可空，最多300字。改开始/结束时间或会议室时重置保留参会人的回复和原因，再发通知；只改标题/说明不重置。新加入的人默认待回复并收到邀请；移出的人失去参会权限并收到移出通知。
+- 创建邀请、改期/换会议室、取消、新增/移出参会人均复用系统通知。组织者不重复收到参会邀请；通知含可空 `meeting_id`，旧 `request_id` 和旧通知兼容。Flutter、后台和 `/staff/` 消息中心可打开关联会议，无 APNs/FCM/厂商推送。
+- 审计动作：`SAVE_MEETING_ROOM`、`DISABLE_MEETING_ROOM`、`DELETE_MEETING_ROOM`、`CREATE_MEETING`、`UPDATE_MEETING`、`CANCEL_MEETING`、`REPLY_MEETING`。未登录401；越权403；输入错误400；会议室占用或启用名称冲突409；不存在404，错误为中文。
+
+验收：`python3 scripts/verify-phase2-calendar.py`（真实 PostgreSQL/Redis，含并发与权限）、`npm --prefix admin run test:e2e -- calendar.spec.ts`、`cd mobile && flutter test`。Flutter 真实接口用例额外提供 `OA_TEST_LOGIN`、`OA_TEST_PASSWORD`、`OA_TEST_MANAGER`（同密码的独立受邀测试账号）和 `OA_TEST_CALENDAR_ROOM_ID`；只使用专用账号/会议室，测试保留审计并取消自己的会议。
