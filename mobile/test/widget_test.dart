@@ -16,6 +16,19 @@ void main() {
   testWidgets('恢复登录后显示待办与未读汇总及新旧入口', (tester) async {
     final api = Api(
       client: MockClient((r) async {
+        if (r.url.path == '/api/workbench/summary') {
+          return http.Response(
+            jsonEncode({
+              'attendance': {
+                'normalPunches': 0,
+                'fieldPunches': 0,
+                'recordedDays': 0,
+              },
+              'approvals': {'completed': 0},
+            }),
+            200,
+          );
+        }
         expect(r.url.path, '/api/messages/summary');
         expect(r.headers['Authorization'], 'Bearer test-token');
         return http.Response(
@@ -117,6 +130,19 @@ void main() {
     var calls = 0;
     final api = Api(
       client: MockClient((r) async {
+        if (r.url.path == '/api/workbench/summary') {
+          return http.Response(
+            jsonEncode({
+              'attendance': {
+                'normalPunches': 0,
+                'fieldPunches': 0,
+                'recordedDays': 0,
+              },
+              'approvals': {'completed': 0},
+            }),
+            200,
+          );
+        }
         calls++;
         return calls == 1
             ? http.Response(

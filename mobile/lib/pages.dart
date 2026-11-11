@@ -10,6 +10,7 @@ import 'requests.dart';
 import 'calendar.dart';
 import 'tasks.dart';
 import 'documents.dart';
+import 'workbench.dart';
 
 class HomePage extends StatefulWidget {
   final Api api;
@@ -29,6 +30,7 @@ class HomePage extends StatefulWidget {
 
 class _HomeState extends State<HomePage> with Guard<HomePage> {
   Json? summary;
+  Json? workbench;
   @override
   void initState() {
     super.initState();
@@ -38,6 +40,8 @@ class _HomeState extends State<HomePage> with Guard<HomePage> {
   Future<void> refresh() => run(() async {
     final data = await widget.api.call('/messages/summary') as Json;
     if (mounted) setState(() => summary = data);
+    final stats = await widget.api.call('/workbench/summary') as Json;
+    if (mounted) setState(() => workbench = stats);
   });
   Future<void> open(Widget page) async {
     await go(context, page);
@@ -107,6 +111,18 @@ class _HomeState extends State<HomePage> with Guard<HomePage> {
                     ),
                 ],
               ),
+            ),
+          ),
+          Card(
+            child: ListTile(
+              title: const Text('考勤与审批汇总'),
+              subtitle: Text(
+                workbench == null
+                    ? '查看本人考勤与审批时效'
+                    : '本月正常打卡 ${workbench!['attendance']['normalPunches']} 次 · 出勤 ${workbench!['attendance']['fieldPunches']} 次\n有记录 ${workbench!['attendance']['recordedDays']} 天 · 办结 ${workbench!['approvals']['completed']} 单',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => open(WorkbenchPage(api: widget.api)),
             ),
           ),
           section('常用功能'),

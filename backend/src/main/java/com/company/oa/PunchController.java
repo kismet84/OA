@@ -91,10 +91,15 @@ class PunchController {
   final PunchService punches;
   final JdbcTemplate db;
   final Set<String> trustedProxies;
+  final WorkbenchController workbench;
 
   PunchController(
-      PunchService punches, JdbcTemplate db, @Value("${oa.trusted-proxies:}") String proxies) {
+      PunchService punches,
+      JdbcTemplate db,
+      WorkbenchController workbench,
+      @Value("${oa.trusted-proxies:}") String proxies) {
     this.punches = punches;
+    this.workbench = workbench;
     this.db = db;
     this.trustedProxies = new HashSet<>(Arrays.asList(proxies.split(",")));
   }
@@ -129,9 +134,12 @@ class PunchController {
 
   RequestController.Query query(
       Actor actor, Long userId, LocalDate from, LocalDate to, String kind) {
-    if (!actor.admin() && userId != null && userId != actor.id())
+    if (!actor.admin()
+        && userId != null
+        && userId != actor.id()
+        && !workbench.scope(actor, null, true).contains(userId))
       throw new ApiException(403, "无权查看他人打卡记录");
-    if (!actor.admin()) userId = actor.id();
+    if (!actor.admin() && userId == null) userId = actor.id();
     StringBuilder sql =
         new StringBuilder(
             "SELECT p.*,u.name user_name,u.employee_no FROM punches p JOIN users u ON"

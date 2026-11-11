@@ -343,3 +343,50 @@ Flyway `V8__company_documents.sql` 新增公司文档、当前附件绑定、历
 - 未登录401，越权403，输入/页码/文件格式错误400，不存在404；错误为中文。普通员工不能创建上传公司文档或指定个人发送；不做网盘、协同编辑、Wiki、多级目录、权限矩阵、在线批注或全文检索引擎。
 
 验收：`python3 scripts/verify-phase2-docs.py`（需Python Pillow，真实HTTP与像素水印检查）、`npm --prefix admin run test:e2e -- documents.spec.ts`、Maven全部测试、`npm --prefix admin run build`、`cd mobile && flutter analyze && flutter test`。新浏览器用例走管理员发布、下级员工可见/水印预览/下载、范围外不可见、禁下载、下架消失、通知失效提示、恢复和回执；Flutter覆盖逐页预览、下载入口、二进制403及通知失去权限。仅本地验证，不涉及正式签名、IPA或真实推送。
+
+## 二期：工作台考勤与审批汇总
+
+`GET /workbench/summary?from=2026-11-01&to=2026-11-30&scope=self`
+
+全部需要登录。`from`、`to` 为上海日期，分别缺省为上海当前月首日、末日，含首尾最多366天。非法日期、开始晚于结束或跨度超限返回400中文错误。`scope` 仅 `self`（缺省）、`team`；可选 `userId` 在授权范围内选一名在职员工（选他人时只按该员工为申请人统计，不通过其审批任务扩大数据范围），可选 `departmentId` 仅 ADMIN/FINANCE 的 team 查询可用。非法范围参数400、越权403，403不返回统计数据。
+
+权限按当前组织实时计算，不建立统计库或账号体系：
+
+- EMPLOYEE：本人；本人时效涵盖本人发起，以及当前轮到本人审批的申请，办结包含本人发起或在审批链中参与的申请（同一单只计一次）。
+- SUPERVISOR：另可查本人及 `manager_id=本人` 的直接下属，不递归下属的下属。
+- DEPT_HEAD：另可查本人及所有 `head_id=本人` 的部门和递归下级部门；与 SUPERVISOR 并存时取并集。
+- ADMIN/FINANCE：全公司，可选一个部门及全部下级；不允许其他角色按部门筛选。
+- 团队/公司以申请人归属统计；在职人数、考勤和员工列表排除停用账号。历史办结时效仍包含当前组织权限范围内停用账号的历史通过/驳回单据。组织变更会改变历史查询的范围，不生成组织历史快照。
+
+响应结构（零值也返回；数组无记录时为 `[]`）：
+
+```json
+{
+  "from":"2026-11-01", "to":"2026-11-30", "scope":"self",
+  "canViewTeam":false, "canFilterDepartment":false, "people":1, "departments":[],
+  "attendance":{
+    "normalPunches":0, "fieldPunches":0, "recordedDays":0, "approvedCorrections":0,
+    "leaveDays":0, "travelDays":0, "outingDays":0, "overtimeDays":0, "overtimeCreditedDays":0,
+    "daysByType":[]
+  },
+  "approvals":{
+    "pendingForMe":0, "initiatedPending":0, "completed":0, "averageHours":0,
+    "waiting":{"total":0,"withinOneDay":0,"oneToThreeDays":0,"overThreeDays":0},
+    "byType":[]
+  }
+}
+```
+
+- `departments` 仅 ADMIN/FINANCE 返回部门选项（id/name/parent_id）；其他角色为空。`people` 是所选范围的在职人数，不是打卡人数。
+- 打卡按 `punches.punched_at` 上海日期筛选。`recordedDays` 是去重的“员工ID+日期”数量，团队为人日总和，不是应出勤或全团队日期去重。补卡批准已写入 punches，正常/出勤次数及记录日仅统计该表一次；`approvedCorrections` 单独展示已批准补卡单数量，按补卡业务日期筛选，不再相加到打卡次数。
+- 请假/出差/外出/加班只取当前 APPROVED，按与区间交集截取；复用现有9点/13点开始、13点/18点结束的自然日半天模型，含周末。跨期只计区间内天数，不取整单。`daysByType` 行含 `kind/leaveType/days/creditedDays`，请假按假种分组；`creditedDays` 仅对加班有调休含义，其余类型等于days。加班额度按单据保存的 `overtime_ratio` 快照乘区间内天数，默认1:1，以提交时服务端配置为准；不重新计算历史额度。
+- 审批仅来自 requests 六类 LEAVE/TRAVEL/OUTING/EXPENSE/OVERTIME/CORRECTION。会议邀请、任务、文档回执不进入审批时效。`pendingForMe` 始终是登录人当前步骤待审批总数；不会因全公司筛选变为所有审批人的待办。`initiatedPending` 是所选本人/团队申请人仍 PENDING 的总数。`waiting` 本人为本人发起或当前待本人处理的去重待审单，团队为范围内申请人的全部待审单。这三项均**实时、不受日期筛选限制**。
+- `completed` 仅当前 APPROVED/REJECTED 的最终办结单，以审批步骤中最终处理时间（最大已通过/驳回 `acted_at`）落入统计期为准。已撤回、撤销不计。`averageHours` 从 `requests.created_at` 到该终审时间，以小时计，保留2位小数；无办结返回0。`byType` 按 `kind/status` 分组，行含 `completed/averageHours`。不以报销支付时间代替终审时间。
+- 等待从提交时刻到服务器当前上海时刻按实际经过时间分段：`withinOneDay` ≤24小时，`oneToThreeDays` >24且≤72小时，`overThreeDays` >72小时；仅展示，不催办、不升级、不发通知。
+- 汇总统计全部记录，不受已有列表200条分页限制。同一查询使用只读一致性事务。不新增表或迁移，保持Flyway V8。
+
+下钻：`GET /workbench/members?departmentId=12&search=姓名或工号&offset=0` 返回授权范围内在职员工 `id/name/employee_no`，每页最多200条。offset非负，search最多100字；员工只返回自己，主管/负责人按上述范围；部门参数仍仅ADMIN/FINANCE可用。三端可选员工后复用 `GET /punches?userId=...&from=...&to=...&offset=0`，该接口增加相同团队范围内单个在职员工的读取权限；不传userId时非管理员仍默认本人，原管理员全量查询不变。申请下钻仍使用原申请/消息列表及其原授权，不因此开放团队申请正文、票据或附件。
+
+三端均保留原 `/messages/summary` 和消息中心五类，汇总不读写已读状态、不产生通知。后台保留组织数字与入门引导；员工网页“提交申请”工作区、Flutter工作台默认展示本人，详情可改日期、有权限时可选团队及部门。不提供班次、迟到、早退、缺卡、应出勤、工时或扣款规则，也不提供BI、自定义报表、图表引擎或统计导出。
+
+验收：先 `source scripts/env.sh && python3 scripts/verify-phase2-workbench.py` 生成独立验收数据和 `.runtime/workbench-fixture.json`，再 `npm --prefix admin run test:e2e -- workbench.spec.ts`。HTTP覆盖401/403/400、组织权限、部门递归、停用历史、253条打卡分页与全量统计、半天裁剪、补卡去重、六类终审48小时和等待分段、非审批数据隔离及消息汇总不变。Flutter `flutter analyze && flutter test` 覆盖权限筛选、日期错误、数字展示和下钻。全量回归仍使用既有脚本与浏览器用例。本地连续验收若触发每IP 15分钟100次登录限流，应等窗口结束或仅在本机开发Redis清理本机IP的登录限流测试计数，不改登录规则和会话。

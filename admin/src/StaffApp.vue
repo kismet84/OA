@@ -7,6 +7,7 @@ import StaffRequest from './StaffRequest.vue';
 import Calendar from './Calendar.vue';
 import Tasks from './Tasks.vue';
 import Documents from './Documents.vue';
+import Workbench from './Workbench.vue';
 const documentId = ref<number|null>(null);
 const taskId = ref<number|null>(null);
 const me = ref<Actor | null>(null), ready = ref(false), busy = ref(false), error = ref(''), message = ref('');
@@ -86,6 +87,7 @@ onUnmounted(() => window.removeEventListener('oa-session-expired', expired));
     <aside class="sidebar"><div class="brand"><span class="brand-mark">OA</span><span>员工办公<small>公司办公系统</small></span></div><nav aria-label="员工功能"><button v-for="[key,label] in nav" :key="key" :class="{active:page===key}" :aria-current="page===key?'page':undefined" :disabled="busy" @click="navigate(key!)">{{ label }}</button></nav><div class="sidebar-foot">与手机 App 共用账号与业务数据</div></aside>
     <main><header><h1>{{ title }}</h1><div class="user-bar"><span>{{ me.name }}</span><button :disabled="busy" @click="passwordOpen=true">修改密码</button><button :disabled="busy" @click="run(async()=>{await api('/auth/logout','POST');clearSession()})">退出登录</button></div></header>
       <p v-if="error" role="alert" class="error">{{ error }}</p><p v-if="message" role="status" class="success">{{ message }}</p>
+      <Workbench v-if="page==='apply'" />
       <StaffRequest v-if="page==='apply'" :key="revision" :me="me" @submitted="id=>{detailId=id;message='申请已提交'}" />
       <Documents v-if="page==='documents'" :document-id="documentId" />
       <Tasks v-if="page==='tasks'" :me="me" :task-id="taskId" />

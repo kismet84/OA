@@ -6,6 +6,7 @@ import MessageCenter from './MessageCenter.vue';
 import Calendar from './Calendar.vue';
 import Tasks from './Tasks.vue';
 import Documents from './Documents.vue';
+import Workbench from './Workbench.vue';
 const documentId = ref<number|null>(null);
 const taskId = ref<number|null>(null);
 const meetingId = ref<number | null>(null);
@@ -633,6 +634,7 @@ onMounted(async () => {
         {{ message }}<button @click="message = ''" aria-label="关闭提示">×</button>
       </div>
       <section v-if="page === 'overview'" class="overview">
+        <Workbench v-if="isAdmin" company />
         <div class="welcome card">
           <p class="eyebrow">组织与出勤</p>
           <h2>把日常管理，放在一个工作区。</h2>
