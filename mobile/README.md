@@ -1,6 +1,6 @@
 # 一期 Flutter 员工端
 
-同一套简体中文 Dart 代码面向 Android / iOS，不提供员工办公网页。开发工具：Flutter 3.47.9 stable、Dart 3.13.7，SDK 位于 `/home/box/flutter`；Android SDK 位于 `/home/box/Android`，均不入库。
+同一套简体中文 Dart 代码面向 Android / iOS；浏览器员工办公入口由仓库 Vue 工程提供，见[根目录说明](../README.md#二期员工办公网页)。开发工具：Flutter 3.47.9 stable、Dart 3.13.7，SDK 位于 `/home/box/flutter`；Android SDK 位于 `/home/box/Android`，均不入库。
 
 ## 使用与地址配置
 

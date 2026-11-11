@@ -47,7 +47,7 @@ cd mobile
 ```text
 backend/                  Spring Boot、Flyway SQL 迁移、JUnit 测试、Dockerfile
 mobile/                   Flutter 员工端、Android/iOS 工程与 Dart 测试
-admin/                    Vue 3 + TypeScript 管理后台、Playwright 浏览器测试、Dockerfile
+admin/                    Vue 3 + TypeScript 管理后台与 /staff/ 员工独立入口、Playwright、Dockerfile
 deploy/nginx/oa.conf      HTTPS 反代和静态页面配置
 docker-compose.yml        PostgreSQL + Redis + 后端 + 管理后台 Nginx
 scripts/                  仓库内依赖安装、本机启停、真实接口与生产 HTTPS 验收
@@ -185,7 +185,7 @@ bash scripts/verify-production.sh
 
 ## 已知限制与后续
 
-一期提供全员消息中心网页，没有 Flutter App；员工可登录改密、查看消息/单据，审批人可处理当前待办，员工提交使用 API，当前后台的代提交与模拟页用于管理/开发；财务账号可登录后台查看已批准报销、下载票据并登记支付状态。通知仅站内查询，无短信、邮件或推送；无审批转办界面，负责人离职前需先处理/撤回在途单据并调整组织关系。账号停用保留数据，不提供硬删除账号或已关联部门。
+员工网页与 Flutter App 已提供员工自助申请及审批；当前管理后台的代提交与模拟页用于管理/开发；财务账号可登录后台查看已批准报销、下载票据并登记支付状态。通知仅站内查询，无短信、邮件或推送；无审批转办界面，负责人离职前需先处理/撤回在途单据并调整组织关系。账号停用保留数据，不提供硬删除账号或已关联部门。
 
 余额由管理员录入当前剩余值，并保留本期开始后的余额变动流水；尚未实现年假结转规则；自然日半天模型尚未覆盖各地工作日历、弹性时段和复杂法定假规则。附件只做类型/大小限制，暂不做病毒扫描或未关联附件自动清理。列表默认 200 条分页，审计/通知分别取最新 500/200 条；导出上限 10000 条。当前未实现组织/账号的批量导入、消息推送或第三方集成。
 
@@ -211,3 +211,35 @@ bash scripts/verify-production.sh
 登录页「服务地址与设备」默认 `http://127.0.0.1:8080`；安卓模拟器改为 `http://10.0.2.2:8080`，USB 安卓可执行 `adb reverse tcp:8080 tcp:8080`；局域网真机填写电脑 IP（后端需监听可达网卡），日后填写 HTTPS 服务域名。无需在代码中写密钥。
 
 已实际构建调试包：`.runtime/oa-employee-debug.apk`，不提交 git。仓库根目录执行 `/home/box/Android/platform-tools/adb install -r .runtime/oa-employee-debug.apk` 安装。Linux 未生成 IPA；iOS 后续在 Mac 用同一工程打开 `mobile/ios/Runner.xcworkspace`、配置签名并联调；全员安装仍需适用的苹果企业账号或 MDM 条件。本次没有办理账号、修改服务器/域名/证书或接入真实推送。尚无连接设备的真机定位、Wi-Fi 和系统文件交互实测，具体边界见员工端说明。
+
+
+## 二期员工办公网页
+
+员工入口：开发时访问 **http://127.0.0.1:5173/staff/**；沿用 HTTPS 反代时访问 **https://localhost/staff/**（本机生产验收端口为8443）。管理后台仍为 `/`，两入口独立构建到同一 `admin/dist`，复用现有 Vite `/api` 开发代理及 Nginx HTTPS 静态资源配置，无需新服务器、证书或后端接口。
+
+使用管理员已开通的员工工号或登录手机号与密码，无新增演示账号。首次必须改密并重新登录；会话沿用后端固定8小时，不自动续期。员工令牌仅放浏览器 `sessionStorage` 的 `oa-staff-token`，与后台 `oa-token` 分开；个人中心可退出单台、其他设备或当前设备，账号停用、改密及会话过期仍由服务端拦截。
+
+- 「提交申请」支持请假、出差、外出、报销、加班、补卡，含抄送、证明、报销最多100行明细及30张票据。提交成功即打开详情。
+- 「消息中心」沿用待我审批、我发起的、抄送我的、系统通知、公告分类。可查看详情、当前步骤审批、按规则撤回或撤销、鉴权下载附件；公告打开或标记已读即回执。员工入口不提供财务支付登记，仍在管理后台进行。
+- 「通讯录」按部门树（含下级）、姓名/工号/部门搜索，仅展示工作电话；「个人中心」展示资料、假期/调休余额与最新500条流水，支持修改工作电话、密码和管理设备。
+- 「打卡记录」支持日期和类型查询、现场/补卡来源及关联单号。**网页不提供现场打卡，请使用手机 App 完成定位与网络校验。**
+
+表单时间均为北京时间，半天模型、跨年、互斥、证明、审批分流、补卡期限和调休退回沿用服务端规则；页面读取 `/attendance-policy` 展示实际配置，不在浏览器另算业务额度。列表每页最多200条，消息通过刷新更新，无真实推送。手机浏览器可用，主要面向电脑；附件、日期选择和多选的原生控件样式随浏览器语言及系统变化。未加入日程、会议、待办任务、文档资料或工作台汇总。
+
+构建与验收（先启动现有本机服务；只在开发数据库执行）：
+
+```bash
+source scripts/env.sh
+mvn -f backend/pom.xml -Dmaven.repo.local="$PWD/.tools/m2" test
+npm --prefix admin run build
+npm --prefix admin run test:e2e
+# 现有四组接口回归按顺序执行，避免互相修改审批配置
+python3 scripts/verify-phase2-attend.py
+python3 scripts/verify-mvp.py
+python3 scripts/verify-announcements.py
+python3 scripts/verify-mobile.py
+# 沿用本机证书及 HTTPS 配置，同时跑员工网页用例
+bash scripts/verify-production.sh
+```
+
+员工浏览器用例位于 `admin/tests/staff.spec.ts`，通过真实接口建立独立验收账号/部门及单据，覆盖首次改密、手机号登录、六类提交、报销明细/多票据/下载、撤回、员工审批、加班撤销、公告回执、资料/通讯录、设备退出、刷新恢复和390px窄屏。截图为 `.runtime/staff-desktop.png` 与 `.runtime/staff-mobile.png`，不提交。详见 [员工网页验收记录](docs/staff-web-verification.md)。

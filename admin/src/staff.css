@@ -1,0 +1,20 @@
+.staff-request { max-width: 880px; }
+.staff-fields { border: 0; margin: 0; padding: 0; min-width: 0; }
+.staff-fields > .primary { margin-top: 22px; }
+.staff-line { display: grid; grid-template-columns: 2fr 1fr auto; gap: 12px; align-items: end; margin-bottom: 16px; }
+.staff-device { border-top: 1px solid #e0e8e5; padding-top: 18px; margin-top: 18px; }
+.staff-app .actions { flex-wrap: wrap; }
+.staff-app .announcement-body { white-space: pre-wrap; }
+@media (max-width: 760px) {
+  .staff-app .login-intro h1 { display: block; margin: 10px 0 0; }
+  .staff-app header { flex-wrap: wrap; }
+  .staff-app .user-bar { max-width: none; }
+  .staff-app .user-bar span { width: auto; }
+  .staff-app .pagination { flex-wrap: wrap; }
+  .staff-line { grid-template-columns: 1fr; gap: 0; }
+  .staff-app .modal { max-height: 90dvh; }
+}
+@media (max-width: 760px) {
+  .staff-app .sidebar nav { flex-wrap: wrap; overflow: visible; }
+  .staff-app .sidebar nav button { flex: 1 0 auto; }
+}

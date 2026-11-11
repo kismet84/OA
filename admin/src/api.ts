@@ -6,10 +6,12 @@ export interface Actor {
   version: number;
 }
 export type Row = Record<string, any>;
-let token = sessionStorage.getItem('oa-token') || '';
+// Separate browser sessions for the employee and management entries.
+const tokenKey = /^\/staff(?:\/|$)/.test(location.pathname) ? 'oa-staff-token' : 'oa-token';
+let token = sessionStorage.getItem(tokenKey) || '';
 export function setToken(value: string) {
   token = value;
-  value ? sessionStorage.setItem('oa-token', value) : sessionStorage.removeItem('oa-token');
+  value ? sessionStorage.setItem(tokenKey, value) : sessionStorage.removeItem(tokenKey);
 }
 export async function api<T = any>(path: string, method = 'GET', body?: unknown): Promise<T> {
   let response: Response;

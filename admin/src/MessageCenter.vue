@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { onMounted, ref, watch } from 'vue';
 import { api, download, display, type Row } from './api';
 import DataTable from './DataTable.vue';
-const props = defineProps<{ management?: boolean; departments: Row[] }>();
+const props = defineProps<{ management?: boolean; departments: Row[]; refreshKey?: number }>();
 const emit = defineEmits<{ openRequest: [row: Row] }>();
 const categories = [ ['pending','待我审批'], ['initiated','我发起的'], ['cc','抄送我的'], ['notifications','系统通知（站内通知）'], ['announcements','公告'] ];
 const category = ref('pending'), rows = ref<Row[]>([]), summary = ref<Row>({}), offset = ref(0);
@@ -52,6 +52,7 @@ async function withdraw(row: Row) {
   });
 }
 onMounted(() => run(load));
+watch(() => props.refreshKey, () => run(load));
 </script>
 <template>
   <section class="card records">

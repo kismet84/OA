@@ -67,4 +67,4 @@ req('/api/auth/logout',{},token)
 (root/'.runtime/production-smoke.json').write_text(json.dumps({'https':True,'certificateVerified':True,'health':True,'development':False,'simulatorStatus':404},indent=2))
 print('通过：真实 Nginx HTTPS、证书验证、静态页面、反代、生产登录、生产模拟接口 404')
 PY
-OA_PROD_WEB=https://localhost:8443 OA_LOCAL_TLS=true npm --prefix admin run test:e2e -- --grep '正式环境'
+OA_WEB=https://localhost:8443 OA_PROD_WEB=https://localhost:8443 OA_LOCAL_TLS=true npm --prefix admin run test:e2e -- --grep '正式环境|员工网页'

@@ -223,3 +223,10 @@ Flyway V3 新增公告、接收人快照、公告附件及申请抄送关联表�
 设备 id 是随机登录 token 的 SHA-256 标识，不是可用于认证的 bearer token。有效会话同时检查 Redis、数据库到期/撤销状态、账号启用状态及 session_version。当前标识相对于请求者，管理员查看别人的设备时均为 false。退出单台不影响其他会话，越权退出他人设备返回404；非管理员调用管理接口403；退出当前设备后后续请求401；改密或管理员编辑账号后全部旧设备会话失效。登录/退出/撤销设备/改工作电话均有审计。设备名称和平台属于客户端声明信息，不代表硬件认证。
 
 迁移 `V4__employee_profile_and_sessions.sql` 仅新增字段和会话表，旧员工资料字段为空；升级前仅存在 Redis 的会话需重新登录登记设备。撤销和过期会话留在表中供审计关联，本期未实现定期清理任务。App 不接入真实推送，消息通过现有消息接口刷新。
+
+
+## 二期员工网页接入
+
+员工网页入口 `/staff/`（开发 Vite 与 HTTPS 静态资源构建均支持），管理入口 `/` 不变。网页与 Flutter 使用本文相同接口及权限，本次未新增或改变业务 API、数据库迁移或默认审批规则。员工网页登录携带 `platform: "Web"` 和可编辑 `deviceName`，令牌存当前浏览器会话 `oa-staff-token`；固定8小时及设备退出均由原会话接口执行。首次改密前不调用业务接口。
+
+网页使用 `/messages` 分类查询、`/requests` 自助提交/详情/审批/撤回、`/announcements` 回执、`/directory`、`/profile`、`/balances`、`/balance-history`、`/attendance-policy` 和 `/auth/sessions`。上传及鉴权下载沿用 `/attachments`。网页不调用 `POST /punches`；只通过 `GET /punches` 查看本人记录。财务支付登记继续使用原管理后台。
