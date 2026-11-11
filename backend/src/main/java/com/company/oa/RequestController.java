@@ -68,8 +68,9 @@ class RequestController {
     List<Object> p = new ArrayList<>();
     if (!a.admin()) {
       sql.append(
-          " AND (r.user_id=? OR EXISTS(SELECT 1 FROM approval_steps s WHERE s.request_id=r.id AND"
+          " AND ((r.kind='EXPENSE' AND r.status='APPROVED' AND ?) OR r.user_id=? OR EXISTS(SELECT 1 FROM approval_steps s WHERE s.request_id=r.id AND"
               + " s.approver_id=?))");
+      p.add(a.has("FINANCE"));
       p.add(a.id());
       p.add(a.id());
     }
@@ -103,6 +104,10 @@ class RequestController {
             "SELECT s.*,u.name approver_name FROM approval_steps s JOIN users u ON"
                 + " u.id=s.approver_id WHERE request_id=? ORDER BY step",
             id));
+    r.put("user_name", db.queryForObject("SELECT name FROM users WHERE id=?", String.class, r.get("user_id")));
+    r.put("items", db.queryForList("SELECT line_no,description,amount FROM expense_items WHERE request_id=? ORDER BY line_no", id));
+    r.put("attachments", db.queryForList("SELECT a.id,a.original_name,a.media_type FROM expense_attachments e JOIN attachments a ON a.id=e.attachment_id WHERE e.request_id=? ORDER BY e.line_no", id));
+    r.put("payment_history", db.queryForList("SELECT h.*,u.name actor_name FROM expense_payment_history h JOIN users u ON u.id=h.actor_id WHERE request_id=? ORDER BY h.id", id));
     return r;
   }
 
@@ -113,6 +118,12 @@ class RequestController {
       HttpServletRequest req) {
     workflow.decide(id, in, Auth.actor(req));
     return Map.of("message", "审批已处理");
+  }
+
+  @PostMapping("/requests/{id}/payment")
+  Object payment(@PathVariable long id, @Valid @RequestBody WorkflowService.Payment in, HttpServletRequest req) {
+    workflow.payment(id, in, Auth.actor(req));
+    return Map.of("message", "支付状态已更新");
   }
 
   @PostMapping("/requests/{id}/cancel")

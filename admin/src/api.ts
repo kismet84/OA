@@ -57,6 +57,10 @@ export async function download(path: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 export const labels: Record<string, string> = {
+  UNPAID: '待支付',
+  PAID: '已支付',
+  MARK_EXPENSE_PAID: '标记报销已支付',
+  RESET_EXPENSE_UNPAID: '报销改回待支付',
   EMPLOYEE: '员工',
   SUPERVISOR: '直属上级',
   DEPT_HEAD: '部门负责人',

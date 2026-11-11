@@ -67,7 +67,12 @@ const application = reactive({
   amount: 0,
   reason: '',
   attachmentId: null as string | null,
+  items: [{ description: '', amount: 0 }],
+  attachmentIds: [] as string[],
 });
+const receipts = ref<{ id: string; name: string }[]>([]);
+const paymentReason = ref('');
+const isAdmin = computed(() => me.value?.roles.split(',').includes('ADMIN'));
 const attachmentName = ref(''),
   approval = reactive({ approve: true, comment: '' });
 const simulator = reactive({
@@ -81,7 +86,7 @@ const simulator = reactive({
 });
 const filters = reactive({ userId: '', status: '', kind: '', from: '', to: '' });
 const roleOptions = ['EMPLOYEE', 'SUPERVISOR', 'DEPT_HEAD', 'ADMIN', 'FINANCE'];
-const nav = computed(() => [
+const nav = computed(() => isAdmin.value ? [
   { key: 'overview', title: '工作台', icon: '概' },
   { key: 'departments', title: '部门组织', icon: '组' },
   { key: 'users', title: '账号与角色', icon: '人' },
@@ -94,7 +99,7 @@ const nav = computed(() => [
   ...(development.value ? [{ key: 'simulator', title: '模拟打卡', icon: '测' }] : []),
   { key: 'notifications', title: '站内通知', icon: '信' },
   { key: 'audit', title: '操作审计', icon: '志' },
-]);
+] : [{ key: 'requests', title: '审批单据', icon: '审' }]);
 const pageTitle = computed(() => nav.value.find((n) => n.key === page.value)?.title || '管理后台');
 const enabledUsers = computed(() => users.value.filter((u) => u.enabled));
 const nameOf = (id: number | null) => users.value.find((u) => u.id === id)?.name || '未指定';
@@ -164,6 +169,7 @@ const columns: Record<string, string[]> = {
     'days:天数',
     'amount:金额（元）',
     'status:状态',
+    'payment_status:支付状态',
   ],
   punches: [
     'user_name:姓名',
@@ -197,15 +203,15 @@ async function session() {
   const data = await api('/auth/me');
   me.value = data.user;
   development.value = data.development;
-  if (!me.value?.roles.split(',').includes('ADMIN')) {
+  if (!me.value?.roles.split(',').some(r => ['ADMIN', 'FINANCE'].includes(r))) {
     await api('/auth/logout', 'POST');
     setToken('');
     me.value = null;
-    throw new Error('此后台仅供管理员使用；员工及审批人请使用接口');
+    throw new Error('此后台仅供管理员或财务使用；员工及其他审批人请使用接口');
   }
   if (!me.value.mustChange) {
     await references();
-    await navigate('overview');
+    await navigate(isAdmin.value ? 'overview' : 'requests');
   }
 }
 async function signIn() {
@@ -235,6 +241,7 @@ async function changePassword() {
   }, '密码已修改，请用新密码重新登录');
 }
 async function references() {
+  if (!isAdmin.value) return;
   [users.value, departments.value, types.value] = await Promise.all([
     api('/admin/users'),
     api('/admin/departments'),
@@ -320,9 +327,13 @@ function openCreate() {
       endDate: '',
       endTime: '18:00',
       reason: '',
+      amount: 0,
+      items: [{ description: '', amount: 0 }],
+      attachmentIds: [],
       attachmentId: null,
     });
     attachmentName.value = '';
+    receipts.value = [];
   }
 }
 function edit(row: Row) {
@@ -389,6 +400,9 @@ async function save() {
             ? null
             : application.endDate + 'T' + application.endTime + ':00',
         amount: application.kind === 'EXPENSE' ? application.amount : null,
+        items: application.kind === 'EXPENSE' ? application.items : null,
+        attachmentIds: application.kind === 'EXPENSE' ? application.attachmentIds : null,
+        attachmentId: application.kind === 'EXPENSE' ? null : application.attachmentId,
       };
     }
     await api(path, method, body);
@@ -400,6 +414,7 @@ async function save() {
 async function showDetail(row: Row) {
   await run(async () => {
     detail.value = await api('/requests/' + row.id);
+    paymentReason.value = '';
     approval.comment = '';
     approval.approve = true;
     modal.value = 'detail';
@@ -419,17 +434,35 @@ async function cancelRequest() {
     await load();
   }, '已撤回或撤销');
 }
-async function upload(event: Event) {
-  const file = (event.target as HTMLInputElement).files?.[0];
-  if (!file) return;
+async function markPayment(status: string) {
   await run(async () => {
-    const data = new FormData();
-    data.append('file', file);
-    const result = await api('/attachments', 'POST', data);
-    application.attachmentId = result.id;
-    attachmentName.value = result.name;
-  }, '证明已上传');
+    await api('/requests/' + detail.value!.id + '/payment', 'POST', { status, reason: paymentReason.value });
+    detail.value = await api('/requests/' + detail.value!.id);
+    paymentReason.value = '';
+    await load();
+  }, '支付状态已更新');
 }
+async function upload(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const files = Array.from(input.files || []);
+  if (!files.length) return;
+  await run(async () => {
+    for (const file of files) {
+      const data = new FormData();
+      data.append('file', file);
+      const result = await api('/attachments', 'POST', data);
+      if (application.kind === 'EXPENSE') {
+        receipts.value.push(result);
+        application.attachmentIds.push(result.id);
+      } else {
+        application.attachmentId = result.id;
+        attachmentName.value = result.name;
+      }
+    }
+  }, '附件已上传');
+  input.value = '';
+}
+
 async function exportCsv() {
   await run(async () => {
     await download(
@@ -461,7 +494,7 @@ onMounted(async () => {
       <p class="eyebrow">公司内部管理平台</p>
       <h1>组织有序<br />协作有据</h1>
       <p>账号与组织 · 申请与审批 · 出勤记录</p>
-      <small>一期管理后台 / 仅供授权管理员使用</small>
+      <small>一期管理后台 / 仅供授权管理员或财务使用</small>
     </section>
     <section class="login-panel">
       <form @submit.prevent="signIn">
@@ -716,13 +749,13 @@ onMounted(async () => {
           <div class="actions">
             <button :disabled="loading || busy" @click="refresh">刷新</button
             ><button
-              v-if="['requests', 'punches'].includes(page)"
+              v-if="isAdmin && ['requests', 'punches'].includes(page)"
               @click="exportCsv"
               :disabled="busy"
             >
               导出 CSV</button
             ><button
-              v-if="!['punches', 'audit', 'notifications'].includes(page)"
+              v-if="isAdmin && !['punches', 'audit', 'notifications'].includes(page)"
               class="primary"
               @click="openCreate"
             >
@@ -894,7 +927,7 @@ onMounted(async () => {
           <dl class="detail-grid">
             <div>
               <dt>申请人</dt>
-              <dd>{{ nameOf(detail.user_id) }}</dd>
+              <dd>{{ detail.user_name || nameOf(detail.user_id) }}</dd>
             </div>
             <div>
               <dt>申请类型 / 状态</dt>
@@ -927,6 +960,20 @@ onMounted(async () => {
           >
             下载证明文件
           </button>
+          <template v-if="detail.kind === 'EXPENSE'">
+            <h3>费用明细</h3>
+            <DataTable :rows="detail.items" :columns="cols(['description:用途 / 类别', 'amount:金额（元）'])" />
+            <h3>票据附件</h3>
+            <p v-if="!detail.attachments.length" class="muted">历史单据未上传票据</p>
+            <button v-for="file in detail.attachments" :key="file.id" @click="run(() => download('/attachments/' + file.id, file.original_name))">下载票据：{{ file.original_name }}</button>
+            <h3>支付状态：{{ display(detail.payment_status) }}</h3>
+            <p>最近操作时间：{{ display(detail.payment_acted_at) }}</p>
+            <ol class="timeline"><li v-for="h in detail.payment_history" :key="h.id">{{ h.actor_name }} · {{ display(h.status) }} · {{ display(h.acted_at) }}<p>{{ h.reason }}</p></li></ol>
+            <form v-if="detail.status === 'APPROVED'" @submit.prevent="markPayment(detail!.payment_status === 'PAID' ? 'UNPAID' : 'PAID')">
+              <label>支付更正原因（改回待支付必填）<textarea v-model="paymentReason" maxlength="1000" :required="detail.payment_status === 'PAID'" /></label>
+              <button class="primary" :disabled="busy">{{ detail.payment_status === 'PAID' ? '改回待支付' : '标记已支付' }}</button>
+            </form>
+          </template>
           <h3>审批记录</h3>
           <ol class="timeline">
             <li v-for="s in detail.steps" :key="s.step">
@@ -937,7 +984,7 @@ onMounted(async () => {
             </li>
           </ol>
           <form
-            v-if="detail.status === 'PENDING' && detail.user_id !== me.id"
+            v-if="detail.status === 'PENDING' && detail.user_id !== me.id && (isAdmin || detail.steps.some((s: Row) => s.step === detail!.current_step && s.approver_id === me!.id))"
             @submit.prevent="decide"
           >
             <label
@@ -953,7 +1000,7 @@ onMounted(async () => {
               /></label
             ><button class="primary" :disabled="busy">提交审批</button>
           </form>
-          <div v-if="['PENDING', 'APPROVED'].includes(detail.status)" class="cancel-area">
+          <div v-if="isAdmin && (detail.status === 'PENDING' || (detail.status === 'APPROVED' && detail.kind !== 'EXPENSE'))" class="cancel-area">
             <p class="muted">
               待审批可撤回；已批准的申请仅在尚未开始时可撤销。已批准的报销不可撤销。
             </p>
@@ -1154,22 +1201,34 @@ onMounted(async () => {
               <p class="muted">
                 按自然日计算，含周末；上午、下午各半天。跨年请分开申请。
               </p></template
-            ><label v-else
+            ><template v-else><label
               >报销金额（元）<input
                 v-model.number="application.amount"
                 type="number"
                 min="0.01"
                 step="0.01"
-                required /></label
-            ><label
+                required /></label>
+              <h3>费用明细（至少一行）</h3>
+              <div v-for="(item, index) in application.items" :key="index" class="form-grid">
+                <label>用途 / 类别<input v-model="item.description" maxlength="200" required /></label>
+                <label>明细金额（元）<input v-model.number="item.amount" type="number" min="0.01" step="0.01" required /></label>
+                <button type="button" :disabled="application.items.length === 1" @click="application.items.splice(index, 1)">删除明细</button>
+              </div>
+              <button type="button" @click="application.items.push({ description: '', amount: 0 })">添加明细</button>
+              <p>明细合计：{{ application.items.reduce((sum, item) => sum + Number(item.amount), 0).toFixed(2) }} 元，须与申报总额一致。</p>
+            </template><label
               >申请理由<textarea v-model="application.reason" maxlength="2000" required /></label
             ><label
-              >证明文件（PDF / PNG / JPEG，最多 10MB）<input
+              >{{ application.kind === 'EXPENSE' ? '票据附件（必填，可多张）' : '证明文件（PDF / PNG / JPEG，最多 10MB）' }}<input
                 type="file"
+                :multiple="application.kind === 'EXPENSE'"
                 accept=".pdf,.png,.jpg,.jpeg"
                 @change="upload"
             /></label>
-            <p class="muted">{{ attachmentName || '尚未上传证明' }}</p></template
+            <template v-if="application.kind === 'EXPENSE'">
+              <p class="muted">每张不超过 10MB，支持 PDF / PNG / JPEG，最多 30 张。至少上传一张。</p>
+              <p v-for="(file, index) in receipts" :key="file.id">{{ file.name }} <button type="button" @click="receipts.splice(index, 1); application.attachmentIds.splice(index, 1)">移除票据</button></p>
+            </template><p v-else class="muted">{{ attachmentName || '尚未上传证明' }}</p></template
           >
           <div class="modal-footer">
             <button type="button" @click="modal = ''">取消</button

@@ -71,11 +71,13 @@ class AttachmentController {
     if (!a.admin()
         && ((Number) file.get("user_id")).longValue() != a.id()
         && db.queryForObject(
-                "SELECT count(*) FROM requests r WHERE r.attachment_id=? AND (r.user_id=? OR"
+                "SELECT count(*) FROM requests r WHERE (r.attachment_id=? OR EXISTS(SELECT 1 FROM expense_attachments e WHERE e.request_id=r.id AND e.attachment_id=?)) AND ((r.kind='EXPENSE' AND r.status='APPROVED' AND ?) OR r.user_id=? OR"
                     + " EXISTS(SELECT 1 FROM approval_steps s WHERE s.request_id=r.id AND"
                     + " s.approver_id=?))",
                 Long.class,
                 id,
+                id,
+                a.has("FINANCE"),
                 a.id(),
                 a.id())
             == 0) throw new ApiException(403, "无权访问该附件");

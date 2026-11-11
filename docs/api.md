@@ -8,7 +8,7 @@
 - `GET /auth/me` → `user: {id,name,roles,mustChange,version}`、`development`。
 - `POST /auth/password`：`{"oldPassword":"原密码","newPassword":"至少10位新密码"}`。密码最多 72 个 UTF-8 字节，修改后所有旧会话失效，须重新登录。
 - `POST /auth/logout`：销毁当前会话。
-- 首次登录只允许查自身、改密码及退出。普通员工只看本人数据；审批人额外可查看分配给自己的单据；管理员可查询全员、代提交和处理审批，但不可自批。
+- 首次登录只允许查自身、改密码及退出。普通员工只看本人数据；审批人额外可查看分配给自己的单据；财务额外可查看全部已批准报销及其票据，供人工支付登记；管理员可查询全员、代提交和处理审批，但不可自批。
 - 角色枚举：`EMPLOYEE` 员工、`SUPERVISOR` 直属上级、`DEPT_HEAD` 部门负责人、`ADMIN` 管理员、`FINANCE` 财务/行政。
 
 ## 管理员维护
@@ -35,7 +35,7 @@
 
 - `GET /leave-types`：启用的假期类型；`GET /balances`：本人余额。
 - `POST /attachments`：multipart 字段 `file`，最多 10MB，仅 PDF/PNG/JPEG，返回 `id`。附件以随机 UUID 保存在本地目录，下载须鉴权。
-- `GET /attachments/{uuid}`：作者、关联申请人、审批链内人员或管理员可下载，不开放静态上传目录。
+- `GET /attachments/{uuid}`：作者、关联申请人、审批链内人员、已批准报销的财务或管理员可下载，不开放静态上传目录。
 - `POST /requests`：提交示例：
 
 ```json
@@ -49,15 +49,43 @@
 }
 ```
 
-`kind`：`LEAVE` 请假、`TRAVEL` 出差、`OUTING` 外出、`EXPENSE` 报销。管理员可以另传 `userId` 代提交，员工不可代他人。报销传 `amount`，起止时间和 typeId 留空。请假必须传 typeId；证明必须由当前提交人上传（管理员代提交时使用管理员上传的证明）。
+`kind`：`LEAVE` 请假、`TRAVEL` 出差、`OUTING` 外出、`EXPENSE` 报销。管理员可以另传 `userId` 代提交，员工不可代他人。报销传 `amount`、`items` 和 `attachmentIds`（见下方），起止时间和 typeId 留空。请假必须传 typeId；证明必须由当前提交人上传（管理员代提交时使用管理员上传的证明）。
 
 天数由服务端计算，不能手填：起点 09:00/13:00，终点 13:00/18:00，上午和下午各半天，按自然日计含周末；跨年必须拆单。出差可用跨日时段覆盖夜间。结束时间须在未来，允许起始已到达的申请；仍需审批通过才能出勤。待批或已批申请之间不能重叠。年假/调休余额以开始年度为准，最终批准才扣减；年度上限只统计已批准且未撤销的假期。
 
 - `GET /requests?status=&kind=&userId=&inbox=false&offset=0`：每页最多 200 条。普通用户仅能看到本人或分配给其审批的单据。`inbox=true` 查当前轮到本人处理的待办。
-- `GET /requests/{id}`：单据与 `steps` 审批链、审批意见及时间。
+- `GET /requests/{id}`：单据与 `steps` 审批链、审批意见及时间；报销同时返回 `items`、`attachments`、`payment_history` 和支付状态字段。
 - `POST /requests/{id}/decision`：`{"approve":true,"comment":"同意"}`，驳回传 false 且意见必填。仅当前步骤审批人或管理员可处理；禁止自批。重复处理会拒绝。审批链和假期扣减/年度上限规则在提交时快照。
 - `POST /requests/{id}/cancel`：申请人或管理员撤回待批单，或撤销尚未开始的已批单。后者返还余额并向已批人生成站内通知；已开始及已批报销不可撤销。
 - `GET /notifications`：本人最新 200 条；`POST /notifications/{id}/read`：本人标记已读。
+
+## 报销明细、票据与支付登记
+
+先逐张调用 `POST /attachments`，再提交：
+
+```json
+{
+  "kind": "EXPENSE",
+  "amount": 1200.00,
+  "reason": "客户拜访费用",
+  "items": [
+    {"description": "交通", "amount": 700.00},
+    {"description": "住宿", "amount": 500.00}
+  ],
+  "attachmentIds": ["上传返回的UUID一", "上传返回的UUID二"]
+}
+```
+
+- 明细 1–100 行，`description` 为必填用途或类别，最多 200 字；总额及每行金额为 0.01–99999999 元，最多两位小数。服务端以十进制定点金额精确求和，不相等返回 400，不自动修正总额。
+- 票据 1–30 张，不可重复；每张最多 10MB，PDF/PNG/JPEG，必须是当前提交人上传且文件仍存在。不存在、他人上传或仅传旧字段 `attachmentId` 均不能替代报销必填的 `attachmentIds`。管理员代提交时使用管理员上传的票据。非报销沿用单张 `attachmentId`。
+- 总额**超过**后台 `expenseThreshold`（默认 1000 元）才追加配置的财务/行政审批人，等于阈值仍一级审批；原有去重、禁止自批规则保持。
+- `GET /requests/{id}` 返回 `items: [{line_no,description,amount}]`、`attachments: [{id,original_name,media_type}]`，按录入顺序排列；附件仍经 `/attachments/{id}` 鉴权下载。
+- 审批 `status` 继续使用 `PENDING/APPROVED/REJECTED/...`，支付状态独立存储于 `payment_status`：未批准为 null，最终批准后为 `UNPAID`（待支付），人工登记后为 `PAID`（已支付）。不调用银行或支付渠道，不自动打款，已批准报销仍不可撤销。
+- `POST /requests/{id}/payment`：财务或管理员提交 `{"status":"PAID","reason":"可选说明"}`；改回待支付使用 `{"status":"UNPAID","reason":"必填的更正原因"}`。仅已批准报销可操作，重复状态及空白更正原因返回 400；其他角色返回 403。使用单据行锁及事务，状态、历史和审计一起提交。
+- 单据上的 `payment_actor_id`、`payment_acted_at` 记录最近一次人工登记操作人和上海时间；详情的 `payment_history` 按时间顺序保留全部登记，包含 `status/actor_id/actor_name/acted_at/reason`。审计操作为 `MARK_EXPENSE_PAID` / `RESET_EXPENSE_UNPAID`，`target` 是单据 ID，可与历史中的原因关联核对。首次批准进入待支付沿用批准审计。
+- 财务可查询全部已批准报销（包括未经过财务二级审批的低额报销）及其票据，不能因此查看无关的未批准报销或其他类型单据；原有本人和审批链权限保持。后台财务账号仅显示审批单据入口，无组织维护或全员导出权限。
+
+升级采用 Flyway V2 增量迁移：历史报销原总额和理由映射为一行明细，原附件映射为一张票据；历史已批准报销初始化为待支付，不补造支付人或支付时间。历史无票据单据保持可查看并提示，不追溯拒绝原有在途审批。新报销必须满足上述明细和票据规则。票据只校验文件类型、大小、归属和存在性，不做税票真实性识别或跨单据查重，也没有编辑已提交报销的接口。
 
 ## 打卡
 

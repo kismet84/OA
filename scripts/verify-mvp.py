@@ -209,10 +209,51 @@ call('/admin/workflow','PUT',{'leaveThreshold':3,'travelThreshold':3,'expenseThr
 rid = submit(30,kind='OUTING',length=2)['id']
 assert len(detail(rid)['steps']) == 1
 call('/requests/'+str(rid)+'/cancel','POST',token=et)
-expense = call('/requests','POST',{'kind':'EXPENSE','amount':1200,'reason':'验收交通费用'},et)['id']
+expense_body = {'kind':'EXPENSE','amount':1200,'reason':'验收交通费用',
+                'items':[{'description':'交通','amount':700},{'description':'住宿','amount':500}],
+                'attachmentIds':[attachment]}
+call('/requests','POST',{**expense_body,'items':[]},et,expect=400)
+call('/requests','POST',{**expense_body,'items':[{'description':'交通','amount':1199.99}]},et,expect=400)
+call('/requests','POST',{**expense_body,'items':[{'description':'交通','amount':1200.001}]},et,expect=400)
+call('/requests','POST',{**expense_body,'attachmentIds':[]},et,expect=400)
+call('/requests','POST',{**expense_body,'attachmentIds':[attachment,attachment]},et,expect=400)
+call('/requests','POST',expense_body,rt,expect=400)
+second_attachment = call('/attachments','POST',payload,et,headers={'Content-Type':'multipart/form-data; boundary='+boundary})['id']
+expense_body['attachmentIds'].append(second_attachment)
+expense = call('/requests','POST',expense_body,et)['id']
+assert len(detail(expense)['items']) == 2 and len(detail(expense)['attachments']) == 2
+for aid in expense_body['attachmentIds']:
+    assert isinstance(call('/attachments/'+aid,token=mt),bytes)
+    call('/attachments/'+aid,token=rt,expect=403)
+call('/requests/'+str(expense)+'/payment','POST',{'status':'PAID'},ft,expect=400)
+check('报销明细必填且精确校验合计/小数位；无票据、重复票据及他人票据拒绝；多明细多票据可查询且下载鉴权')
 assert len(detail(expense)['steps']) == 2
 approve(expense);approve(expense,ft)
-assert detail(expense)['status'] == 'APPROVED'
+assert detail(expense)['status'] == 'APPROVED' and detail(expense)['payment_status'] == 'UNPAID'
+for token in [et, mt, rt]:
+    call('/requests/'+str(expense)+'/payment','POST',{'status':'PAID'},token,expect=403)
+call('/requests/'+str(expense)+'/cancel','POST',token=et,expect=400)
+call('/requests/'+str(expense)+'/payment','POST',{'status':'PAID'},ft)
+paid = detail(expense)
+assert paid['payment_status'] == 'PAID' and paid['payment_actor_id'] == finance and paid['payment_acted_at']
+call('/requests/'+str(expense)+'/payment','POST',{'status':'PAID'},ft,expect=400)
+call('/requests/'+str(expense)+'/payment','POST',{'status':'UNPAID','reason':'  '},ft,expect=400)
+call('/requests/'+str(expense)+'/payment','POST',{'status':'UNPAID','reason':'支付登记错误，更正'},at)
+assert detail(expense)['payment_status'] == 'UNPAID'
+assert len(detail(expense)['payment_history']) == 2
+assert detail(expense)['payment_history'][1]['reason'] == '支付登记错误，更正'
+# Low-value expense: finance is not in the approval chain, but may view/pay approved expenses.
+low = call('/requests','POST',{**expense_body,'amount':10,'items':[{'description':'停车','amount':10}]},et)['id']
+call('/requests/'+str(low),token=ft,expect=403)
+approve(low)
+assert any(r['id']==low for r in call('/requests?kind=EXPENSE',token=ft))
+assert detail(low,ft)['payment_status']=='UNPAID'
+assert isinstance(call('/attachments/'+second_attachment,token=ft),bytes)
+call('/requests/'+str(low)+'/payment','POST',{'status':'PAID'},ft)
+logs = call('/admin/audit',token=at)
+assert any(l['action']=='MARK_EXPENSE_PAID' and l['target']==str(low) for l in logs)
+assert any(l['action']=='RESET_EXPENSE_UNPAID' and l['target']==str(expense) for l in logs)
+check('批准后待支付；财务/管理员标记及更正记录人、时间、原因和审计；重复/未批/越权支付拒绝；已批报销不可撤销；财务可处理低额报销')
 call('/admin/workflow','PUT',{'leaveThreshold':old_config['leave_threshold'],'travelThreshold':old_config['travel_threshold'],'expenseThreshold':old_config['expense_threshold'],'financeId':old_config['finance_id']},at)
 check('后台配置阈值即时生效；报销超过阈值流转财务并批准，不涉及打款')
 # Punch API never accepts caller-supplied source IP; the development endpoint explicitly simulates it.

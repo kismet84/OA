@@ -1,6 +1,7 @@
 package com.company.oa;
 
 import jakarta.validation.constraints.*;
+import jakarta.validation.Valid;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.*;
@@ -15,6 +16,8 @@ public class WorkflowService {
   final JdbcTemplate db;
   final Auth auth;
   final Clock clock;
+  @org.springframework.beans.factory.annotation.Value("${oa.uploads}")
+  String uploads;
 
   WorkflowService(JdbcTemplate db, Auth auth, Clock clock) {
     this.db = db;
@@ -28,9 +31,15 @@ public class WorkflowService {
       Long typeId,
       LocalDateTime startAt,
       LocalDateTime endAt,
-      @DecimalMin("0.01") @DecimalMax("99999999") BigDecimal amount,
+      @DecimalMin("0.01") @DecimalMax("99999999") @Digits(integer = 8, fraction = 2) BigDecimal amount,
       @NotBlank @Size(max = 2000) String reason,
-      UUID attachmentId) {}
+      UUID attachmentId,
+      @Size(max = 100) List<@NotNull @Valid ExpenseItem> items,
+      @Size(max = 30) List<@NotNull UUID> attachmentIds) {}
+
+  public record ExpenseItem(
+      @NotBlank @Size(max = 200) String description,
+      @NotNull @DecimalMin("0.01") @DecimalMax("99999999") @Digits(integer = 8, fraction = 2) BigDecimal amount) {}
 
   public static BigDecimal days(LocalDateTime start, LocalDateTime end) {
     ApiException.require(start != null && end != null && end.isAfter(start), "起止时间无效");
@@ -72,7 +81,18 @@ public class WorkflowService {
                   in.startAt())
               == 0,
           "与现有待审批或已批准的时段重叠");
-    } else ApiException.require(in.amount() != null, "报销金额不能为空");
+    } else {
+      ApiException.require(in.amount() != null, "报销金额不能为空");
+      ApiException.require(in.items() != null && !in.items().isEmpty(), "报销至少需要一行费用明细");
+      BigDecimal sum = in.items().stream().map(ExpenseItem::amount).reduce(BigDecimal.ZERO, BigDecimal::add);
+      ApiException.require(sum.compareTo(in.amount()) == 0, "费用明细合计必须等于申报总额");
+      ApiException.require(in.attachmentIds() != null && !in.attachmentIds().isEmpty(), "报销至少需要一张有效票据");
+      ApiException.require(new HashSet<>(in.attachmentIds()).size() == in.attachmentIds().size(), "票据不可重复");
+      for (UUID attachment : in.attachmentIds()) {
+        ApiException.require(java.nio.file.Files.isRegularFile(java.nio.file.Path.of(uploads).resolve(attachment.toString())), "票据文件缺失");
+        ApiException.require(db.queryForObject("SELECT count(*) FROM attachments WHERE id=? AND user_id=?", Long.class, attachment, actor.id()) == 1, "票据不存在或无权使用");
+      }
+    }
     if (in.attachmentId() != null)
       ApiException.require(
           db.queryForObject(
@@ -145,6 +165,14 @@ public class WorkflowService {
             in.attachmentId(),
             type != null && (boolean) type.get("deduct_balance"),
             type == null ? null : type.get("annual_limit"));
+    if (in.kind().equals("EXPENSE")) {
+      for (int n = 0; n < in.items().size(); n++) {
+        var item = in.items().get(n);
+        db.update("INSERT INTO expense_items VALUES(?,?,?,?)", id, n + 1, item.description(), item.amount());
+      }
+      for (int n = 0; n < in.attachmentIds().size(); n++)
+        db.update("INSERT INTO expense_attachments VALUES(?,?,?)", id, in.attachmentIds().get(n), n + 1);
+    }
     for (int n = 0; n < chain.size(); n++)
       db.update(
           "INSERT INTO approval_steps(request_id,step,approver_id) VALUES(?,?,?)",
@@ -195,6 +223,7 @@ public class WorkflowService {
     if (rows.isEmpty()) throw new ApiException(404, "审批单不存在");
     var r = rows.getFirst();
     if (!a.admin()
+        && !(a.has("FINANCE") && r.get("kind").equals("EXPENSE") && r.get("status").equals("APPROVED"))
         && ((Number) r.get("user_id")).longValue() != a.id()
         && db.queryForObject(
                 "SELECT count(*) FROM approval_steps WHERE request_id=? AND approver_id=?",
@@ -264,11 +293,29 @@ public class WorkflowService {
         status,
         status.equals("PENDING") ? next : r.get("current_step"),
         id);
+    if (finalApproval && r.get("kind").equals("EXPENSE"))
+      db.update("UPDATE requests SET payment_status='UNPAID' WHERE id=?", id);
     if (status.equals("PENDING"))
       notify(
           ((Number) nextSteps.getFirst().get("approver_id")).longValue(), "审批单 #" + id + " 待您处理");
     else notify(owner, "审批单 #" + id + (in.approve() ? " 已批准" : " 已驳回"));
     auth.audit(actor.id(), in.approve() ? "APPROVE_REQUEST" : "REJECT_REQUEST", id);
+  }
+
+  public record Payment(@NotNull @Pattern(regexp = "PAID|UNPAID") String status,
+      @Size(max = 1000) String reason) {}
+
+  @Transactional
+  public void payment(long id, Payment in, Actor actor) {
+    if (!actor.admin() && !actor.has("FINANCE")) throw new ApiException(403, "仅财务或管理员可标记支付状态");
+    var r = get(id, actor, true);
+    ApiException.require(r.get("kind").equals("EXPENSE") && r.get("status").equals("APPROVED"), "仅已批准报销可标记支付状态");
+    ApiException.require(!in.status().equals(r.get("payment_status")), "支付状态未变化");
+    ApiException.require(!in.status().equals("UNPAID") || (in.reason() != null && !in.reason().isBlank()), "改回待支付必须填写原因");
+    var now = LocalDateTime.now(clock);
+    db.update("UPDATE requests SET payment_status=?,payment_actor_id=?,payment_acted_at=? WHERE id=?", in.status(), actor.id(), now, id);
+    db.update("INSERT INTO expense_payment_history(request_id,status,actor_id,acted_at,reason) VALUES(?,?,?,?,?)", id, in.status(), actor.id(), now, in.reason());
+    auth.audit(actor.id(), in.status().equals("PAID") ? "MARK_EXPENSE_PAID" : "RESET_EXPENSE_UNPAID", id);
   }
 
   @Transactional

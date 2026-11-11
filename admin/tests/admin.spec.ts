@@ -153,3 +153,89 @@ test('正式环境隐藏模拟打卡并通过 HTTPS 登录', async ({ page }) =>
   await page.getByRole('button', { name: '退出', exact: true }).click();
   await expect(page.getByRole('heading', { name: '管理员登录' })).toBeVisible();
 });
+
+test('报销页面校验明细和票据，管理员及财务登记支付更正', async ({ page, request }) => {
+  const suffix = Date.now().toString().slice(-9);
+  const root = await request.post('/api/auth/login', {
+    data: { login: 'admin', password: process.env.OA_ADMIN_PASSWORD || 'Admin@2026Verified' },
+  });
+  expect(root.ok()).toBeTruthy();
+  const headers = { Authorization: 'Bearer ' + (await root.json()).token };
+  const users = await (await request.get('/api/admin/users', { headers })).json();
+  const manager = users.find((u: any) => u.enabled && /SUPERVISOR|DEPT_HEAD/.test(u.roles));
+  expect(manager).toBeTruthy();
+  const employee = '报销浏览器员工' + suffix;
+  const created = await request.post('/api/admin/users', { headers, data: {
+    employeeNo: 'expense' + suffix, name: employee, roles: ['EMPLOYEE'],
+    departmentId: manager.department_id, managerId: manager.id, enabled: true, password: 'Expense@2026Initial',
+  } });
+  expect(created.ok()).toBeTruthy();
+  const employeeId = (await created.json()).id;
+  await page.goto('/');
+  await page.getByLabel('工号 / 手机号').fill('admin');
+  await page.getByLabel('密码', { exact: true }).fill(process.env.OA_ADMIN_PASSWORD || 'Admin@2026Verified');
+  await page.getByRole('button', { name: '登录管理后台', exact: true }).click();
+  await page.locator('nav').getByRole('button', { name: '审批单据' }).click();
+  await page.getByRole('button', { name: '提交申请', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('代提交员工').selectOption(String(employeeId));
+  await dialog.getByLabel('申请类型').selectOption('EXPENSE');
+  await dialog.getByLabel('报销金额（元）', { exact: true }).fill('100');
+  await dialog.getByLabel('用途 / 类别').fill('交通');
+  await dialog.getByLabel('明细金额（元）').fill('40');
+  await dialog.getByRole('button', { name: '添加明细', exact: true }).click();
+  await dialog.getByLabel('用途 / 类别').nth(1).fill('餐费');
+  await dialog.getByLabel('明细金额（元）').nth(1).fill('59');
+  await dialog.getByLabel('申请理由').fill('浏览器报销验收' + suffix);
+  await dialog.getByRole('button', { name: '保存', exact: true }).click();
+  await expect(page.getByRole('alert').first()).toContainText('费用明细合计必须等于申报总额');
+  await dialog.getByLabel('明细金额（元）').nth(1).fill('60');
+  await dialog.getByRole('button', { name: '保存', exact: true }).click();
+  await expect(page.getByRole('alert').first()).toContainText('报销至少需要一张有效票据');
+  await dialog.getByLabel('票据附件（必填，可多张）').setInputFiles([
+    { name: '交通票.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n交通票') },
+    { name: '餐费票.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n餐费票') },
+  ]);
+  await expect(dialog).toContainText('餐费票.pdf');
+  await dialog.getByRole('button', { name: '保存', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  const row = page.getByRole('row').filter({ hasText: employee });
+  await row.getByRole('button', { name: '查看 / 审批' }).click();
+  await expect(dialog.getByRole('cell', { name: '交通', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('cell', { name: '餐费', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: /下载票据/ })).toHaveCount(2);
+  await dialog.getByRole('button', { name: '提交审批', exact: true }).click();
+  await expect(dialog).toContainText('支付状态：待支付');
+  await dialog.getByRole('button', { name: '标记已支付', exact: true }).click();
+  await expect(dialog).toContainText('支付状态：已支付');
+  await dialog.getByLabel('支付更正原因（改回待支付必填）').fill('登记错误，等待实际支付');
+  await dialog.getByRole('button', { name: '改回待支付', exact: true }).click();
+  await expect(dialog).toContainText('支付状态：待支付');
+  await expect(dialog).toContainText('登记错误，等待实际支付');
+  await expect(dialog.getByRole('button', { name: '撤销申请', exact: true })).toHaveCount(0);
+  await page.screenshot({ path: '../.runtime/admin-expense.png', fullPage: true });
+  await dialog.getByRole('button', { name: '关闭弹窗' }).click();
+  await page.getByRole('button', { name: '退出', exact: true }).click();
+  // 财务不依赖管理接口即可查询、下载和标记一级批准的报销。
+  const login = 'pay' + suffix;
+  expect((await request.post('/api/admin/users', { headers, data: {
+    employeeNo: login, name: '浏览器验收财务', roles: ['FINANCE'], departmentId: manager.department_id,
+    enabled: true, password: 'Finance@2026Initial',
+  } })).ok()).toBeTruthy();
+  const first = await (await request.post('/api/auth/login', { data: { login, password: 'Finance@2026Initial' } })).json();
+  expect((await request.post('/api/auth/password', { headers: { Authorization: 'Bearer ' + first.token },
+    data: { oldPassword: 'Finance@2026Initial', newPassword: 'Finance@2026Changed' } })).ok()).toBeTruthy();
+  await page.getByLabel('工号 / 手机号').fill(login);
+  await page.getByLabel('密码', { exact: true }).fill('Finance@2026Changed');
+  await page.getByRole('button', { name: '登录管理后台', exact: true }).click();
+  await expect(page.locator('nav').getByRole('button')).toHaveCount(1);
+  await expect(page.getByRole('button', { name: '提交申请', exact: true })).toHaveCount(0);
+  await page.getByRole('row').filter({ hasText: employee }).getByRole('button', { name: '查看 / 审批' }).click();
+  await expect(dialog).toContainText(employee);
+  const downloaded = page.waitForEvent('download');
+  await dialog.getByRole('button', { name: '下载票据：交通票.pdf', exact: true }).click();
+  expect((await downloaded).suggestedFilename()).toBe('交通票.pdf');
+  await dialog.getByRole('button', { name: '标记已支付', exact: true }).click();
+  await expect(dialog).toContainText('支付状态：已支付');
+  await expect(dialog).toContainText('浏览器验收财务');
+});
