@@ -1,0 +1,30 @@
+server:
+  address: ${SERVER_ADDRESS:127.0.0.1}
+  port: ${SERVER_PORT:8080}
+  error:
+    include-message: never
+spring:
+  jackson:
+    time-zone: Asia/Shanghai
+  profiles:
+    default: dev
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://127.0.0.1:55432/oa}
+    hikari:
+      connection-init-sql: SET TIME ZONE 'Asia/Shanghai'
+    username: ${DATABASE_USER:oa}
+    password: ${DATABASE_PASSWORD:oa-local-only}
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:56379}
+      password: ${REDIS_PASSWORD:}
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 11MB
+oa:
+  uploads: ${UPLOAD_DIR:./uploads}
+  origins: ${CORS_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
+  bootstrap-password: ${BOOTSTRAP_PASSWORD:}
+  trusted-proxies: ${TRUSTED_PROXIES:}

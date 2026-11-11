@@ -15,3 +15,8 @@ data/redis/
 *.log
 .env
 !.env.example
+.tools/
+.runtime/
+__pycache__/
+admin/test-results/
+admin/playwright-report/

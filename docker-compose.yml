@@ -1,0 +1,76 @@
+name: oa-system
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: oa
+      POSTGRES_USER: oa
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?请在 .env 设置 DB_PASSWORD}
+      TZ: Asia/Shanghai
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U oa -d oa']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    networks: [private]
+  redis:
+    image: redis:7.4-alpine
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?请在 .env 设置 REDIS_PASSWORD}
+    command: [sh, -c, 'exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"']
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: [CMD-SHELL, 'REDISCLI_AUTH=$$REDIS_PASSWORD redis-cli ping | grep -q PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    networks: [private]
+  backend:
+    build: ./backend
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SERVER_ADDRESS: 0.0.0.0
+      DATABASE_URL: jdbc:postgresql://postgres:5432/oa
+      DATABASE_USER: oa
+      DATABASE_PASSWORD: ${DB_PASSWORD:?请设置数据库密码}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?请设置 Redis 密码}
+      BOOTSTRAP_PASSWORD: ${BOOTSTRAP_PASSWORD:?请设置管理员初始密码}
+      CORS_ORIGINS: ${CORS_ORIGINS:?请设置 HTTPS 访问域名}
+      TRUSTED_PROXIES: 172.30.0.10
+      UPLOAD_DIR: /app/uploads
+      TZ: Asia/Shanghai
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    restart: unless-stopped
+    networks: [private]
+  nginx:
+    build: ./admin
+    ports:
+      - '443:443'
+    volumes:
+      - ./deploy/nginx/oa.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./.runtime/certs:/etc/nginx/certs:ro
+    depends_on: [backend]
+    restart: unless-stopped
+    networks:
+      private:
+        ipv4_address: 172.30.0.10
+volumes:
+  postgres-data:
+  redis-data:
+  uploads:
+networks:
+  private:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
