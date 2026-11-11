@@ -48,7 +48,7 @@ class AdminController {
   Object users() {
     return db.queryForList(
         "SELECT"
-            + " u.id,u.employee_no,u.phone,u.name,u.roles,u.department_id,u.manager_id,u.enabled,u.must_change_password,d.name"
+            + " u.id,u.employee_no,u.phone,u.job_title,u.work_phone,u.name,u.roles,u.department_id,u.manager_id,u.enabled,u.must_change_password,d.name"
             + " department_name FROM users u JOIN departments d ON d.id=u.department_id ORDER BY"
             + " u.id");
   }
@@ -120,6 +120,8 @@ class AdminController {
       @NotBlank @Pattern(regexp = "[A-Za-z0-9_-]{1,40}") String employeeNo,
       @Pattern(regexp = "[+]?[0-9]{5,19}") String phone,
       @NotBlank @Size(max = 80) String name,
+      @Size(max = 100) String jobTitle,
+      @Size(max = 40) @Pattern(regexp = "[0-9+() -]{0,40}") String workPhone,
       @NotEmpty Set<String> roles,
       @NotNull Long departmentId,
       Long managerId,
@@ -253,6 +255,8 @@ class AdminController {
             auth.encoder.encode(Auth.validPassword(in.password())),
             id);
     }
+    db.update(
+        "UPDATE users SET job_title=?,work_phone=? WHERE id=?", in.jobTitle(), in.workPhone(), id);
     auth.audit(actor.id(), "SAVE_USER", id);
     return Map.of("id", id);
   }

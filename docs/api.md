@@ -4,7 +4,7 @@
 
 ## 身份与权限
 
-- `POST /auth/login`：`{"login":"工号或手机号","password":"密码"}` → `token`、`user`。会话有效期 8 小时，不滑动续期。
+- `POST /auth/login`：`{"login":"工号或手机号","password":"密码","deviceName":"员工手机","platform":"Android"}` → `token`、`user`。会话有效期 8 小时，不滑动续期。`deviceName` / `platform` 可选，最多100 / 30字；未填显示「未命名设备」/「未知平台」，兼容既有客户端。
 - `GET /auth/me` → `user: {id,name,roles,mustChange,version}`、`development`。
 - `POST /auth/password`：`{"oldPassword":"原密码","newPassword":"至少10位新密码"}`。密码最多 72 个 UTF-8 字节，修改后所有旧会话失效，须重新登录。
 - `POST /auth/logout`：销毁当前会话。
@@ -19,7 +19,7 @@
 | --- | --- | --- |
 | `/departments` | GET / POST | 列表 / `{name,parentId?,headId?}` |
 | `/departments/{id}` | PUT | 同上；拒绝部门循环，负责人须有效且具有负责人角色 |
-| `/users` | GET / POST | 列表 / `{employeeNo,phone?,name,roles:[],departmentId,managerId?,enabled,password}` |
+| `/users` | GET / POST | 列表 / `{employeeNo,phone?,name,jobTitle?,workPhone?,roles:[],departmentId,managerId?,enabled,password}` |
 | `/users/{id}` | PUT | 同上；`password:null` 保留原密码，非空则重置并强制改密；修改后旧会话失效 |
 | `/networks` | GET / POST | 列表 / `{kind:"SSID"或"IP",value}`；IP 必须是完整地址，不接受 CIDR |
 | `/networks/{id}` | DELETE | 移除网络登记 |
@@ -151,3 +151,25 @@ Flyway V3 新增公告、接收人快照、公告附件及申请抄送关联表�
 - 原 `GET /notifications` 继续返回本人最新 200 条；`POST /notifications/{id}/read` 保留首次已读时间，无权或不存在返回 403。消息中心使用同一张表，状态同步。
 
 所有新接口均需登录及完成首次改密；停用账号原有会话立即失效。业务时间仍为 Asia/Shanghai。本期不提供设备登记或推送发送接口，不连接 APNs、FCM 或厂商通道，无证书也可完整查询、阅读和下载站内消息。
+
+
+## 员工资料、组织通讯录与设备会话（Flutter 一期）
+
+除管理员设备接口外，以下均面向已完成首次改密的登录用户，不依赖员工角色字符串；只能操作本人资料与会话。管理员维护账号时可填 `jobTitle`（最多100字）和 `workPhone`（最多40字，仅数字、空格、`+()-`）；`phone` 仍是登录手机号，独立保存，不自动复制到工作电话。旧客户端不传这两个可选字段时保存为空。
+
+| 路径 | 方法 | 输入 / 返回 |
+| --- | --- | --- |
+| `/profile` | GET | 本人 `{id,employee_no,name,roles,department_id,department_name,job_title,work_phone}` |
+| `/profile/work-phone` | PUT | `{workPhone:"021-12345678"}`；null/空串清空，不允许修改工号、角色、部门。额外 JSON 字段不参与更新 |
+| `/directory/departments` | GET | 组织树的平铺节点 `[{id,name,parent_id}]`，客户端按 parent_id 展示层级 |
+| `/directory?departmentId=&search=&offset=0` | GET | departmentId 可不传；包含所选部门及下级。在职同事按姓名/工号/部门模糊搜索（最多100字，`%`、`_` 按字面搜索），按工号排序，每页最多200人 |
+| `/auth/sessions` | GET | 本人有效设备 `[{id,device_name,platform,created_at,expires_at,current}]` |
+| `/auth/sessions/{id}` | DELETE | 退出本人某台设备，传 `others` 退出除当前设备外的全部设备 |
+| `/admin/users/{userId}/sessions` | GET | 管理员查看指定员工有效设备，同上 |
+| `/admin/users/{userId}/sessions/{id}` | DELETE | 管理员退出指定员工设备；`others` 同样表示排除调用者当前设备 |
+
+通讯录只返回 `{id,name,employee_no,department_id,department_name,job_title,work_phone}`，不返回登录手机号、密码、角色或其他敏感字段；停用账号立即隐藏。登录手机号只有被另行登记为工作电话时才出现在通讯录。
+
+设备 id 是随机登录 token 的 SHA-256 标识，不是可用于认证的 bearer token。有效会话同时检查 Redis、数据库到期/撤销状态、账号启用状态及 session_version。当前标识相对于请求者，管理员查看别人的设备时均为 false。退出单台不影响其他会话，越权退出他人设备返回404；非管理员调用管理接口403；退出当前设备后后续请求401；改密或管理员编辑账号后全部旧设备会话失效。登录/退出/撤销设备/改工作电话均有审计。设备名称和平台属于客户端声明信息，不代表硬件认证。
+
+迁移 `V4__employee_profile_and_sessions.sql` 仅新增字段和会话表，旧员工资料字段为空；升级前仅存在 Redis 的会话需重新登录登记设备。撤销和过期会话留在表中供审计关联，本期未实现定期清理任务。App 不接入真实推送，消息通过现有消息接口刷新。

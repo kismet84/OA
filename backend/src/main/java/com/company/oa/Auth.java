@@ -67,6 +67,17 @@ class Auth implements HandlerInterceptor {
     return (Actor) request.getAttribute("actor");
   }
 
+  static String sessionId(String token) {
+    try {
+      return java.util.HexFormat.of()
+          .formatHex(
+              java.security.MessageDigest.getInstance("SHA-256")
+                  .digest(token.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+    } catch (java.security.NoSuchAlgorithmException e) {
+      throw new IllegalStateException(e);
+    }
+  }
+
   static String token(HttpServletRequest request) {
     String h = request.getHeader("Authorization");
     return h != null && h.startsWith("Bearer ") ? h.substring(7) : "";
@@ -88,6 +99,14 @@ class Auth implements HandlerInterceptor {
     String[] parts = session.split(":");
     Actor a = user(Long.parseLong(parts[0]));
     if (a.version() != Integer.parseInt(parts[1])) throw new ApiException(401, "会话已失效，请重新登录");
+    if (db.queryForObject(
+            "SELECT count(*) FROM login_sessions WHERE id=? AND user_id=? AND revoked_at IS NULL"
+                + " AND expires_at>now() AND session_version=?",
+            Long.class,
+            sessionId(t),
+            a.id(),
+            a.version())
+        != 1) throw new ApiException(401, "设备会话已失效，请重新登录");
     req.setAttribute("actor", a);
     if (a.mustChange() && !(authEndpoint && Set.of("me", "password", "logout").contains(name)))
       throw new ApiException(403, "首次登录必须修改密码");
@@ -128,7 +147,10 @@ class AuthController {
   }
 
   record Login(
-      @NotBlank @Size(max = 80) String login, @NotBlank @Size(max = 128) String password) {}
+      @NotBlank @Size(max = 80) String login,
+      @NotBlank @Size(max = 128) String password,
+      @Size(max = 100) String deviceName,
+      @Size(max = 30) String platform) {}
 
   record Password(
       @NotBlank @Size(max = 72) String oldPassword,
@@ -158,6 +180,19 @@ class AuthController {
     auth.redis
         .opsForValue()
         .set("session:" + token, u.get("id") + ":" + u.get("session_version"), Duration.ofHours(8));
+    db.update(
+        "INSERT INTO login_sessions(id,user_id,session_version,device_name,platform,expires_at)"
+            + " VALUES(?,?,?,?,?,now()+interval '8 hours')",
+        Auth.sessionId(token),
+        u.get("id"),
+        u.get("session_version"),
+        input.deviceName() == null || input.deviceName().isBlank()
+            ? "未命名设备"
+            : input.deviceName().trim(),
+        input.platform() == null || input.platform().isBlank() ? "未知平台" : input.platform().trim());
+    auth.redis
+        .opsForValue()
+        .set("session-id:" + Auth.sessionId(token), "active", Duration.ofHours(8));
     auth.audit(((Number) u.get("id")).longValue(), "LOGIN", u.get("id"));
     return Map.of("token", token, "user", auth.user(((Number) u.get("id")).longValue()));
   }
@@ -177,6 +212,9 @@ class AuthController {
 
   @PostMapping("/logout")
   Object logout(HttpServletRequest req) {
+    db.update(
+        "UPDATE login_sessions SET revoked_at=now() WHERE id=?", Auth.sessionId(Auth.token(req)));
+    auth.redis.delete("session-id:" + Auth.sessionId(Auth.token(req)));
     auth.redis.delete("session:" + Auth.token(req));
     auth.audit(Auth.actor(req).id(), "LOGOUT", Auth.actor(req).id());
     return Map.of("message", "已退出");

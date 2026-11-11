@@ -1,6 +1,6 @@
 # 公司内部 OA · 一期 MVP
 
-Java 21 + Spring Boot 3 单体后端，PostgreSQL 保存业务，Redis 保存会话及登录失败计数，本地目录保存证明文件；Vue 3 + Vite + TypeScript 中文管理后台。提供管理员后台、财务报销处理入口和全员消息中心；员工提交通过 API，审批人可通过页面处理待办；没有 Flutter 或其他移动客户端。
+Java 21 + Spring Boot 3 单体后端，PostgreSQL 保存业务，Redis 保存会话及登录失败计数，本地目录保存证明文件；Vue 3 + Vite + TypeScript 中文管理后台。提供管理员后台、财务报销处理入口和全员消息中心；新增同一套代码面向 Android / iOS 的 Flutter 员工 App，员工可直接提交申请、打卡及处理审批。
 
 ## 已实现
 
@@ -18,6 +18,7 @@ Java 21 + Spring Boot 3 单体后端，PostgreSQL 保存业务，Redis 保存会
 
 ```text
 backend/                  Spring Boot、Flyway SQL 迁移、JUnit 测试、Dockerfile
+mobile/                   Flutter 员工端、Android/iOS 工程与 Dart 测试
 admin/                    Vue 3 + TypeScript 管理后台、Playwright 浏览器测试、Dockerfile
 deploy/nginx/oa.conf      HTTPS 反代和静态页面配置
 docker-compose.yml        PostgreSQL + Redis + 后端 + 管理后台 Nginx
@@ -171,3 +172,14 @@ bash scripts/verify-production.sh
 管理员代提交四类申请时，可在“抄送同事（可多选）”选择最多 100 名启用同事；员工通过 API 传 `ccUserIds`。抄送名单去重且不能包含申请人；提交和最终通过/驳回均发站内通知，详情返回名单。抄送仅赋予单据及附件阅读权限，审批、撤回、支付仍各自校验原权限；若同事本就有审批或财务角色，其原有授权保持。
 
 使用 Flyway V3 增量建表，旧申请默认无抄送，旧通知保持可用。未接入 APNs、FCM、安卓厂商、短信或邮件，也没有伪造推送发送记录；无需证书，站内消息完整可用。没有定时发布、评论、公告审批或客户端后台推送；正文为纯文本，已读回执仅证明打开或标记操作。测试证据保存于 `.runtime/announcement-verification.json`、`.runtime/announce-admin.png` 和 `.runtime/messages-*.png`，均不提交。
+
+
+## 一期 Flutter 员工 App
+
+详见 [员工端运行与安装说明](mobile/README.md)。已实现首次强制改密、地址配置、工作台汇总、定位打卡、四类申请/审批及抄送、报销明细/多票据、五类消息与公告回执/附件、组织通讯录、资料/余额/工作电话及登录设备管理。
+
+管理员可在「账号与角色」维护职务和工作电话，并查看/退出员工登录设备。通讯录只下发工作电话，不公开登录用个人手机号。Flyway V4 增量添加字段和设备会话表，数据库保存 token 的 SHA-256 标识，Redis 继续维护8小时会话；改密和管理员编辑账号保持原有全部旧会话失效规则。升级前仅在 Redis 的旧会话因缺少设备登记须重新登录，历史业务数据保留。
+
+登录页「服务地址与设备」默认 `http://127.0.0.1:8080`；安卓模拟器改为 `http://10.0.2.2:8080`，USB 安卓可执行 `adb reverse tcp:8080 tcp:8080`；局域网真机填写电脑 IP（后端需监听可达网卡），日后填写 HTTPS 服务域名。无需在代码中写密钥。
+
+已实际构建调试包：`.runtime/oa-employee-debug.apk`，不提交 git。仓库根目录执行 `/home/box/Android/platform-tools/adb install -r .runtime/oa-employee-debug.apk` 安装。Linux 未生成 IPA；iOS 后续在 Mac 用同一工程打开 `mobile/ios/Runner.xcworkspace`、配置签名并联调；全员安装仍需适用的苹果企业账号或 MDM 条件。本次没有办理账号、修改服务器/域名/证书或接入真实推送。尚无连接设备的真机定位、Wi-Fi 和系统文件交互实测，具体边界见员工端说明。

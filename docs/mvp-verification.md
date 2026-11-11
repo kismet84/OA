@@ -146,3 +146,50 @@ Chromium 通过中文页面完成：管理员登录 → 新增部门 → 开通�
 - `backend/target/surefire-reports/`：JUnit 报告。浏览器失败时 `admin/test-results/` 保存截图和 trace。
 
 上述证据包含开发测试数据，不提交数据库、工具、会话、证书私钥或上传证明文件。接口定义、启动步骤、时间口径、SSID/定位信任边界和已知限制详见 [README](../README.md) 与 [API 文档](api.md)。
+
+## Flutter 员工端续跑验收（2026-11-11）
+
+在提交 `a677ddd` 上继续保留并完成已有改动。Flutter 3.47.9 stable / Dart 3.13.7，Android SDK 位于 `/home/box/Android`，Java 沿用仓库21版本；未安装 SDK 到 git，未改历史迁移。V4 新增职务、工作电话及设备会话表；管理员页面支持维护字段和踢设备。
+
+| 本次检查 | 结果 |
+| --- | --- |
+| Maven JUnit | 4 项通过，编译成功 |
+| Flutter 静态分析 | 无问题 |
+| Dart 测试（含真实服务） | 9 项通过、无跳过，专用普通员工完成登录、消息汇总、通讯录及退出 |
+| 员工新增接口 `verify-mobile.py` | 通过，覆盖资料白名单/工作电话、姓名工号部门搜索、部门下级、停用隐藏、长度校验、设备隔离/本人及管理员踢设备、当前设备退出及改密失效 |
+| 既有业务 `verify-mvp.py` | 21 组通过，含报销、定位网络、审批并发及权限回归 |
+| 公告消息 `verify-announcements.py` | 5 组通过 |
+| Vue 类型检查与生产构建 | 通过 |
+| Playwright Chromium（1440×1000） | 5 项通过、1 项生产 HTTPS 用例按环境跳过；另对最终设备弹窗改动定向复验 |
+| Android debug 构建 | 成功，`apksigner` 验证 v2 签名通过，包名 `com.company.oa_employee`、最低 Android API 24、target API 36 |
+| Android 实机/模拟器安装运行 | 未执行；`adb devices` 无连接设备 |
+| iOS 编译/签名/IPA | 未执行；Linux 无 Xcode，无 IPA |
+
+首次改密测试原失败原因：带中文的 Mock HTTP 响应未声明 UTF-8，测试构造响应时抛出编码异常，被 API 封装转换为网络错误。修正模拟响应字符集后，完整验证首次登录进入强制改密页、禁止返回、没有工作台入口、提交密码后清除 token 并回到登录页。没有放宽首次改密规则或删测试。
+
+管理后台定向操作：登录 → 账号与角色 → 编辑职务/工作电话 → 保存并核对列表 → 登录设备 → 查看设备 → 退出此设备 → 接口验证原会话401，页面无未捕获 JS 异常。Browser 插件不可用，使用仓库已有 Playwright；截图 `.runtime/flutter-admin-devices.png`。过程中批量验收曾触发本机登录 IP 频率限制，只清除开发 Redis 的 `login-ip:127.0.0.1` 计数后重跑，未降低业务限流规则。浏览器套件应逐次运行，避免并发写入同一 `admin/test-results` 目录。
+
+实际执行主要命令：
+
+```bash
+bash scripts/dev-up.sh
+source scripts/env.sh
+mvn -f backend/pom.xml -Dmaven.repo.local="$PWD/.tools/m2" test
+python3 scripts/verify-mobile.py
+python3 scripts/verify-mvp.py
+python3 scripts/verify-announcements.py
+npm --prefix admin run build
+npm --prefix admin run test:e2e
+npm --prefix admin run test:e2e -- tests/mobile-support.spec.ts
+/home/box/flutter/bin/flutter analyze mobile
+# 在 mobile 中用已改密的专用员工环境变量运行（不提供账号时 live 用例会跳过）
+OA_TEST_LOGIN=测试工号 OA_TEST_PASSWORD=测试密码 /home/box/flutter/bin/flutter test
+# 在 mobile 中，设置仓库 JDK 和 ANDROID_HOME 后
+/home/box/flutter/bin/flutter build apk --debug
+```
+
+可安装调试包保存在 `/workspace/oa-system/.runtime/oa-employee-debug.apk`（约159 MiB，未提交）；SHA-256：`9fcbaac58a9656bd249075067f9147e6961422b2ff3162267f78ff6e230cae4e`。仓库根目录用 `/home/box/Android/platform-tools/adb install -r .runtime/oa-employee-debug.apk` 安装。构建与签名验证通过不能代替实机验证。
+
+地址配置入口为登录页「服务地址与设备」。默认127.0.0.1:8080，安卓模拟器改10.0.2.2，USB真机可 adb reverse，局域网真机用电脑IP且后端需监听该网卡；日后配置受信任 HTTPS 服务地址。具体命令见 [mobile/README.md](../mobile/README.md)。iOS 在 Mac 使用同一工程 `mobile/ios/Runner.xcworkspace`，仍需依赖解析、编译、签名及真机联调；全员安装还需适用的苹果企业账号或 MDM 条件，本次未办理。
+
+尚未连接真机验证定位授权、SSID、系统文件选择/查看、安全存储，也未实测 iOS；消息采用页面刷新，无真实推送、离线提交、后台定位或员工网页。现有数据库、上传及本机服务继续保留，构建物和日志均忽略不入库。证据：`.runtime/flutter-tests-live.log`、`flutter-mobile-http.log`、`flutter-mvp-resume.log`、`flutter-announcements-resume.log`、`flutter-e2e-resume.log`、`flutter-devices-e2e-final.log`、`flutter-maven-final.log`、`flutter-analyze-final.log`、`flutter-apk-build-resume.log`。

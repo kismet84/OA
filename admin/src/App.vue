@@ -24,6 +24,8 @@ const passwordForm = reactive({ oldPassword: '', newPassword: '' });
 const account = reactive({
   employeeNo: '',
   phone: '',
+  jobTitle: '',
+  workPhone: '',
   name: '',
   roles: ['EMPLOYEE'],
   departmentId: null as number | null,
@@ -74,6 +76,18 @@ const application = reactive({
 });
 const receipts = ref<{ id: string; name: string }[]>([]);
 const paymentReason = ref('');
+const deviceUser = ref<number | null>(null);
+const devices = ref<Row[]>([]);
+async function showDevices(id: number) {
+  deviceUser.value = id;
+  await run(async () => { devices.value = await api('/admin/users/' + id + '/sessions'); modal.value = 'devices'; });
+}
+async function kickDevice(id: string) {
+  await run(async () => {
+    await api('/admin/users/' + deviceUser.value + '/sessions/' + id, 'DELETE');
+    devices.value = await api('/admin/users/' + deviceUser.value + '/sessions');
+  }, '设备已退出');
+}
 const isAdmin = computed(() => me.value?.roles.split(',').includes('ADMIN'));
 const attachmentName = ref(''),
   approval = reactive({ approve: true, comment: '' });
@@ -144,7 +158,9 @@ const columns: Record<string, string[]> = {
   users: [
     'employee_no:工号',
     'name:姓名',
-    'phone:手机号',
+    'phone:登录手机号',
+    'job_title:职务',
+    'work_phone:工作电话',
     'department_name:主部门',
     'manager_name:直属上级',
     'role_names:角色',
@@ -296,6 +312,8 @@ function openCreate() {
     Object.assign(account, {
       employeeNo: '',
       phone: '',
+      jobTitle: '',
+      workPhone: '',
       name: '',
       roles: ['EMPLOYEE'],
       departmentId: departments.value[0]?.id ?? null,
@@ -341,6 +359,8 @@ function edit(row: Row) {
     Object.assign(account, {
       employeeNo: row.employee_no,
       phone: row.phone || '',
+      jobTitle: row.job_title || '',
+      workPhone: row.work_phone || '',
       name: row.name,
       roles: row.roles.split(','),
       departmentId: row.department_id,
@@ -844,6 +864,7 @@ onMounted(async () => {
             >
               移除
             </button>
+            <button v-if="page === 'users'" @click="showDevices(row.id)">登录设备</button>
             <button v-if="page === 'requests'" @click="showDetail(row)">查看 / 审批</button>
             <button
               v-if="page === 'notifications' && !row.read_at"
@@ -890,12 +911,14 @@ onMounted(async () => {
         class="modal"
         role="dialog"
         aria-modal="true"
-        :aria-label="modal === 'detail' ? '审批单详情' : '编辑表单'"
+        :aria-label="modal === 'devices' ? '登录设备' : modal === 'detail' ? '审批单详情' : '编辑表单'"
       >
         <div class="modal-header">
           <h2>
             {{
-              modal === 'password'
+              modal === 'devices'
+                ? '登录设备'
+                : modal === 'password'
                 ? '修改密码'
                 : modal === 'detail'
                   ? '审批单 #' + detail?.id
@@ -905,7 +928,16 @@ onMounted(async () => {
           <button @click="modal = ''" aria-label="关闭弹窗">×</button>
         </div>
         <p v-if="error" role="alert" class="error">{{ error }}</p>
-        <form v-if="modal === 'password'" @submit.prevent="changePassword">
+        <div v-if="modal === 'devices'">
+          <h3>当前有效登录设备</h3>
+          <p v-if="!devices.length">暂无有效设备</p>
+          <div v-for="d in devices" :key="d.id">
+            <p>{{ d.device_name }} · {{ d.platform }}{{ d.current ? '（当前设备）' : '' }}</p>
+            <p>登录：{{ d.created_at }}；到期：{{ d.expires_at }}</p>
+            <button class="danger" :disabled="busy" @click="kickDevice(d.id)">退出此设备</button>
+          </div>
+        </div>
+        <form v-else-if="modal === 'password'" @submit.prevent="changePassword">
           <label
             >原密码<input
               v-model="passwordForm.oldPassword"
@@ -1017,7 +1049,9 @@ onMounted(async () => {
                 pattern="[A-Za-z0-9_-]{1,40}"
                 required /></label
             ><label>姓名<input v-model="account.name" maxlength="80" required /></label
-            ><label>手机号<input v-model="account.phone" type="tel" maxlength="20" /></label
+            ><label>职务<input v-model="account.jobTitle" maxlength="100" /></label
+            ><label>工作电话<input v-model="account.workPhone" maxlength="40" pattern="[0-9+() -]{0,40}" /></label
+            ><label>登录手机号<input v-model="account.phone" type="tel" maxlength="20" /></label
             ><label
               >主部门<select v-model="account.departmentId" required>
                 <option v-for="d in deptTree" :key="d.id" :value="d.id">{{ d.tree_name }}</option>
