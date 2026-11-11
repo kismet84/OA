@@ -59,6 +59,7 @@ export async function download(path: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 export const labels: Record<string, string> = {
+  PUBLISH_DOCUMENT:'发布文档', UPDATE_DOCUMENT:'修改文档', WITHDRAW_DOCUMENT:'下架文档', REPUBLISH_DOCUMENT:'重新上架文档',
   TASK: '任务', REQUEST: '审批单', TODO: '待处理', IN_PROGRESS: '进行中', COMPLETED: '已完成',
   CREATE_TASK:'创建任务', UPDATE_TASK:'修改任务', COMPLETE_TASK:'完成任务', CANCEL_TASK:'取消任务', RESTORE_TASK:'恢复任务', FOLLOW_TASK:'跟进任务', STATUS_TASK:'任务状态变更',
   CREATE_MEETING: '创建会议',
@@ -124,4 +125,10 @@ export function display(v: unknown): string {
   const s = String(v);
   if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.slice(0, 19).replace('T', ' ');
   return labels[s] || s;
+}
+
+export async function binary(path: string): Promise<Blob> {
+  const response = await fetch('/api'+path, {headers:{Authorization:'Bearer '+token},cache:'no-store',signal:AbortSignal.timeout(60000)});
+  if(!response.ok) throw new Error((await response.json()).message || '预览失败');
+  return response.blob();
 }

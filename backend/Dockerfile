@@ -5,6 +5,7 @@ COPY src ./src
 RUN mvn -B package
 FROM eclipse-temurin:21-jre
 WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends fontconfig fonts-noto-cjk && rm -rf /var/lib/apt/lists/*
 RUN groupadd --system oa && useradd --system --gid oa oa && mkdir /app/uploads && chown oa:oa /app/uploads
 COPY --from=build /build/target/oa-1.0.0.jar app.jar
 USER oa

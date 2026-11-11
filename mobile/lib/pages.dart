@@ -9,6 +9,7 @@ import 'main.dart' show PasswordPage;
 import 'requests.dart';
 import 'calendar.dart';
 import 'tasks.dart';
+import 'documents.dart';
 
 class HomePage extends StatefulWidget {
   final Api api;
@@ -110,6 +111,11 @@ class _HomeState extends State<HomePage> with Guard<HomePage> {
           ),
           section('常用功能'),
           for (final entry in <(String, IconData, Widget)>[
+            (
+              '文档资料',
+              Icons.description_outlined,
+              DocumentsPage(api: widget.api),
+            ),
             (
               '待办任务',
               Icons.task_alt,
@@ -342,7 +348,12 @@ class _MessageState extends State<MessagePage> with Guard<MessagePage> {
           );
         }
         if (!mounted) return;
-        if (row['task_id'] != null) {
+        if (row['document_id'] != null) {
+          await go(
+            context,
+            DocumentPage(api: widget.api, id: row['document_id'] as int),
+          );
+        } else if (row['task_id'] != null) {
           await go(
             context,
             TaskPage(

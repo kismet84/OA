@@ -293,7 +293,7 @@ Flyway `V7__assigned_tasks.sql` 增量建立 `tasks`、当前负责人 `task_ass
 - 仅发起人或管理员可修改内容/名单或软取消。已完成仍可补充跟进、改标题/说明，但不能改负责人或截止；须由发起人或管理员重开到 `IN_PROGRESS` 后再改。已取消禁止编辑、跟进和改状态，仅管理员可纠错恢复到 `TODO`；恢复/重开通知负责人，历史跟进保留。
 - 发起人、当前负责人、管理员可查看完整任务，其他人详情和写操作403；列表始终按权限收窄，即使传他人筛选也不会扩大权限。移出的负责人立即离开自己的待办，丧失该任务阅读权限（仍为发起人或管理员的除外），原跟进不删除。移出通知保留，但点击详情仍按当前权限判断。
 - 创建指派、改名单、修改、跟进、状态切换、完成、取消、恢复使用既有系统通知；除创建时的本人指派通知，操作者不重复收到通知，同一接收人去重。审计动作：`CREATE_TASK,UPDATE_TASK,FOLLOW_TASK,STATUS_TASK,COMPLETE_TASK,CANCEL_TASK,RESTORE_TASK`。写操作在事务中锁任务行，避免并发修改、取消与跟进相互穿透。
-- 未登录401，越权403，参数/状态错误400，不存在404；错误信息中文。没有附件、子任务、循环任务、项目看板、甘特图、真实推送、文档资料或新工作台汇总模块。
+- 未登录401，越权403，参数/状态错误400，不存在404；错误信息中文。任务没有附件、子任务、循环任务、项目看板或甘特图；不接真实推送、不做新工作台汇总，文档资料为下文独立模块。
 
 ### 合并到现有消息待办
 
@@ -302,3 +302,44 @@ Flyway `V7__assigned_tasks.sql` 增量建立 `tasks`、当前负责人 `task_ass
 审批条目新增 `item_type:"REQUEST"`，保留原单据字段；任务条目 `item_type:"TASK",task_id`，带任务字段、`creator_name,overdue`，不要把其 id 当成审批单号；两类 id 可相同。客户端分别调用 `/requests/{id}` 与 `/tasks/{task_id}`。其他审批分类仍保留，通过 `/tasks?scope=initiated` 查看自己发起且未取消的任务。系统通知返回可空 `task_id`，三端可据此打开任务详情，旧单据与会议通知不受影响。
 
 验收：`python3 scripts/verify-phase2-todo.py`（真实 PostgreSQL/Redis，含201项全量计数/分页与审批共存）、`npm --prefix admin run test:e2e -- tasks.spec.ts`、`cd mobile && flutter analyze && flutter test`。管理员测试密码用 `OA_ADMIN_PASSWORD` 覆盖；浏览器测试使用隔离账号并走真实登录、创建指派、双类别详情、跟进完成及中文管理员恢复流程。测试数据保留历史和审计，测试输出与截图不提交。
+
+## 二期文档资料（制度与文件下发）
+
+Flyway `V8__company_documents.sql` 新增公司文档、当前附件绑定、历史文件保护及首次预览回执；既有 `notifications` 仅增加可空 `document_id`。旧审批、公告、会议、任务及通知保持兼容。以下路径以 `/api` 为前缀，全部须登录并完成首次改密，业务日期为 **Asia/Shanghai**。
+
+| 接口 | 方法 | 输入与返回 |
+| --- | --- | --- |
+| `/documents` | POST | 仅管理员创建并立即发布，完整输入见下例；返回 `{id}` |
+| `/documents/{id}` | PUT | 仅管理员完整修改同一组字段；已下架文档修改后仍下架；返回 `{id}` |
+| `/documents/{id}/withdraw` | POST | 仅管理员软下架，保留文件、回执及审计；重复调用不重复审计 |
+| `/documents/{id}/republish` | POST | 仅管理员重新上架已下架文档，再次通知当前接收人并更新发布时间；重复调用不重复通知 |
+| `/documents?category=POLICY&keyword=制度&publishedFrom=2026-11-01&publishedTo=2026-11-30&offset=0&limit=200` | GET | 筛选均可选；按分类、标题关键字（不区分大小写、按字面匹配）、发布时间的上海自然日（含起止日）查询；时间、id 倒序。offset≥0，limit为1–200，默认200。员工只见当前已发布且在接收范围内的文档；管理员 `management=true` 包含下架文档 |
+| `/documents/{id}` | GET | 返回当前字段及 `attachments:[{id,original_name,media_type}]`，**不记已读**；范围外或下架的普通员工403 |
+| `/documents/{id}/attachments/{uuid}/preview` | GET | 返回 `{pages,watermark}`，PDF总页数、图片为1页；不返回原件、不记已读 |
+| `/documents/{id}/attachments/{uuid}/pages/{page}` | GET | 1起始页码；返回服务端烧录水印的 `image/png`，成功生成后插入首次已读回执，重复打开不覆盖时间 |
+| `/documents/{id}/attachments/{uuid}/download` | GET | 允许下载时返回水印文件：PDF重绘全部页面、图片统一导出PNG；禁止下载时403，不能通过预览或通用附件接口拿到原件 |
+| `/documents/{id}/receipts` | GET | 仅管理员；`{readCount,unreadCount,read,unread,historical}`。统计和前两名单按当前接收范围，历史已读但已移出/停用人员保留在 `historical`；人员包含 `user_id,name,employee_no,department_name,read_at` |
+
+```json
+{
+  "title": "员工考勤制度",
+  "description": "请全体研发人员查阅",
+  "category": "POLICY",
+  "departmentId": 12,
+  "attachmentIds": ["00000000-0000-0000-0000-000000000001"],
+  "allowDownload": true
+}
+```
+
+- 标题必填，去首尾空格、最多200字；说明可空、最多5000字；分类必填且仅 `POLICY` 公司制度、`FILE` 通知文件、`OTHER` 其他；`departmentId:null` 为全员，否则指定一个部门及其全部下级，接收人为当前在职账号。范围形状与公告相同，文档按当前组织及范围实时授权；公告仍沿用原有快照规则。管理员可查看全部文档。
+- 状态 `PUBLISHED` 已发布、`WITHDRAWN` 已下架。无草稿、定时、物理删除、版本树。员工始终看到当前内容；修改范围和组织后立即按当前范围授权，旧预览URL每次请求均重新校验，旧附件不可通过当前文档路由查阅。管理员下架后仍可查详情、回执、预览及取回原件。
+- `allowDownload` 缺省或null为true。附件为1–10份、不重复，须由**当前操作管理员本人**经既有 `POST /attachments` 上传、仍存在、单份≤10MB，类型仅PDF/PNG/JPEG。已用于公告或审批的附件不能转为文档；请重新上传，以保留原业务授权。文档附件也不能再次用于公告；历史文件保护记录不随替换或下架删除。其他管理员修改时需重新上传所保留的附件。
+- 发布校验可解析性：不支持损坏/加密PDF；PDF须1–200页、每页宽高≤3000磅且大于0，图片≤2000万像素。仅校验文件头的旧附件上传接口保持兼容，文档发布增加可预览性校验。Word/Excel、音视频、压缩包不支持。
+- 水印包含登录查看人的姓名、工号及上海查看日期，烧录于内容区并有页脚。PDF由 [Apache PDFBox](https://pdfbox.apache.org/3.0/migration.html) 逐页渲染，预览与导出均不传递原始内容流、图层或图片元数据；预览长边至多约1800像素，下载PDF为栅格化水印版（不保留文字选择、链接和表单），图片导出PNG。服务端须具备中文字体（如Noto CJK；后端Docker镜像已安装），确保中文姓名可显示。
+- 所有水印二进制响应 `Cache-Control: no-store`；预览图片本身也带水印。禁止下载代表不提供完整导出，预览图片仍可截图/保存，不是DRM。允许下载后已导出的水印件不能远程收回。
+- 普通员工访问任何当前或历史文档附件的 `GET /attachments/{uuid}` 均403，不新增静态文件服务。管理员在后台可通过该鉴权接口取回原件；原公告/审批独立附件授权不变。
+- 发布、重新上架给当前接收人发系统通知；修改已发布文档只通知新进入范围的人，操作者本人不重复接收。修改下架文档不发通知，待重新上架统一通知。增加 `document_id` 的系统通知可从三端进入对应文档；已下架/失去权限则显示中文原因；不进入审批待办，不新增推送或工作台汇总。
+- 首次**成功生成预览页**记已读，详情、预览元数据和下载不记已读；修改和重新上架不清除首次时间。写操作及预览使用事务行锁，下架与预览授权顺序一致。审计复用原表：`PUBLISH_DOCUMENT`、`UPDATE_DOCUMENT`、`WITHDRAW_DOCUMENT`、`REPUBLISH_DOCUMENT`。
+- 未登录401，越权403，输入/页码/文件格式错误400，不存在404；错误为中文。普通员工不能创建上传公司文档或指定个人发送；不做网盘、协同编辑、Wiki、多级目录、权限矩阵、在线批注或全文检索引擎。
+
+验收：`python3 scripts/verify-phase2-docs.py`（需Python Pillow，真实HTTP与像素水印检查）、`npm --prefix admin run test:e2e -- documents.spec.ts`、Maven全部测试、`npm --prefix admin run build`、`cd mobile && flutter analyze && flutter test`。新浏览器用例走管理员发布、下级员工可见/水印预览/下载、范围外不可见、禁下载、下架消失、通知失效提示、恢复和回执；Flutter覆盖逐页预览、下载入口、二进制403及通知失去权限。仅本地验证，不涉及正式签名、IPA或真实推送。

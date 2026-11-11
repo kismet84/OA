@@ -44,7 +44,7 @@ class AnnouncementController {
     for (UUID file : files)
       ApiException.require(
           db.queryForObject(
-                  "SELECT count(*) FROM attachments WHERE id=? AND user_id=?",
+                  "SELECT count(*) FROM attachments WHERE id=? AND user_id=? AND NOT EXISTS(SELECT 1 FROM document_file_history h WHERE h.attachment_id=attachments.id)",
                   Long.class,
                   file,
                   a.id())

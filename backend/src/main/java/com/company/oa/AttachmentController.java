@@ -27,6 +27,8 @@ class AttachmentController {
     Files.createDirectories(root);
   }
 
+  Path path(UUID id) { return root.resolve(id.toString()); }
+
   @PostMapping
   @Transactional
   Object upload(@RequestParam MultipartFile file, HttpServletRequest req) throws IOException {
@@ -68,6 +70,8 @@ class AttachmentController {
     if (rows.isEmpty()) throw new ApiException(404, "附件不存在");
     var file = rows.getFirst();
     Actor a = Auth.actor(req);
+    if (!a.admin() && db.queryForObject("SELECT count(*) FROM document_file_history WHERE attachment_id=?", Long.class, id) > 0)
+      throw new ApiException(403, "公司文档请通过文档资料预览或下载水印件");
     if (!a.admin()
         && ((Number) file.get("user_id")).longValue() != a.id()
         && db.queryForObject(

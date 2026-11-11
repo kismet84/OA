@@ -125,6 +125,21 @@ class Api {
     }
   }
 
+  Future<Uint8List> documentBytes(String path) async {
+    try {
+      return decode(
+        await client
+            .get(uri(path), headers: headers)
+            .timeout(const Duration(seconds: 90)),
+        binary: true,
+      );
+    } on ApiError {
+      rethrow;
+    } catch (_) {
+      throw ApiError('文档读取失败，请重试');
+    }
+  }
+
   Future<Uint8List> download(String id) async {
     try {
       return decode(
