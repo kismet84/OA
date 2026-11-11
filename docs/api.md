@@ -273,3 +273,32 @@ Flyway V3 新增公告、接收人快照、公告附件及申请抄送关联表�
 - 审计动作：`SAVE_MEETING_ROOM`、`DISABLE_MEETING_ROOM`、`DELETE_MEETING_ROOM`、`CREATE_MEETING`、`UPDATE_MEETING`、`CANCEL_MEETING`、`REPLY_MEETING`。未登录401；越权403；输入错误400；会议室占用或启用名称冲突409；不存在404，错误为中文。
 
 验收：`python3 scripts/verify-phase2-calendar.py`（真实 PostgreSQL/Redis，含并发与权限）、`npm --prefix admin run test:e2e -- calendar.spec.ts`、`cd mobile && flutter test`。Flutter 真实接口用例额外提供 `OA_TEST_LOGIN`、`OA_TEST_PASSWORD`、`OA_TEST_MANAGER`（同密码的独立受邀测试账号）和 `OA_TEST_CALENDAR_ROOM_ID`；只使用专用账号/会议室，测试保留审计并取消自己的会议。
+
+## 二期待办任务（指派与跟进）
+
+Flyway `V7__assigned_tasks.sql` 增量建立 `tasks`、当前负责人 `task_assignees`、不可编辑删除的 `task_followups`；原 `notifications` 增加可空 `task_id`，旧 `request_id`、`meeting_id` 及历史数据保留。复用登录、在职账号、组织通讯录、系统通知与审计，不进入审批链。以下路径均以 `/api` 为前缀，均须登录并完成首次改密。
+
+| 接口 | 方法 | 输入与返回 |
+| --- | --- | --- |
+| `/tasks?scope=assigned&status=TODO&dueFrom=2031-02-01&dueTo=2031-02-28&creatorId=12&assigneeId=13&offset=0` | GET | 各筛选可选；scope 空为有权查看的任务，`assigned` 为我负责的，`initiated` 为我发起且未取消的。管理员空 scope 可查全部。截止起止含整个上海自然日，无截止的任务不匹配日期筛选。按创建时间、id 倒序，每页最多200条，offset 翻页；汇总不受此上限限制 |
+| `/tasks/{id}` | GET | 完整任务及 `creator_name,overdue,canEdit,canRestore,assignees,followups`；负责人含 `user_id,name,employee_no`，跟进含 `id,user_id,user_name,content,created_at`，按时间、id 正序 |
+| `/tasks` | POST | `{title,description?,dueAt?,assigneeIds:[12,13]}`，发起人自动为登录者（管理员也为本人）；返回 `{id}`，初始状态 `TODO` |
+| `/tasks/{id}` | PUT | 发起人或管理员完整提交同上字段；发起人不变，返回 `{id}`；负责人变动通知加入和移出的人 |
+| `/tasks/{id}/followups` | POST | 发起人、现任负责人或管理员追加 `{content:"已联系客户"}`；必填纯文本，最多5000字，不可修改删除；返回中文 message |
+| `/tasks/{id}/status` | POST | `{status:"IN_PROGRESS",content?:"开始处理"}`；可在状态变更事务中同时追加跟进，完成时建议填写但不强制；返回中文 message |
+
+- 标题必填且最多200字，说明可空且最多5000字；负责人至少1人，去重后最多200人，须为在职账号，可包含本人。重复指派不重复通知，创建且指派给自己保留一条通知。
+- `dueAt` 可空或空串；支持 `YYYY-MM-DD`（当天23:59:59）或无偏移 ISO 日期时间，例如 `2031-02-03T18:00:00`，均解释为 **Asia/Shanghai**；返回时间不带偏移，客户端不可按设备时区再转换。截止仅筛选和提示，已过期的未结束任务返回 `overdue:true`，不自动改状态。
+- 状态为 `TODO` 待处理、`IN_PROGRESS` 进行中、`COMPLETED` 已完成、`CANCELLED` 已取消。发起人、负责人或管理员可在未结束时切换待处理/进行中、标记完成；状态变更也通知其他参与人。
+- 仅发起人或管理员可修改内容/名单或软取消。已完成仍可补充跟进、改标题/说明，但不能改负责人或截止；须由发起人或管理员重开到 `IN_PROGRESS` 后再改。已取消禁止编辑、跟进和改状态，仅管理员可纠错恢复到 `TODO`；恢复/重开通知负责人，历史跟进保留。
+- 发起人、当前负责人、管理员可查看完整任务，其他人详情和写操作403；列表始终按权限收窄，即使传他人筛选也不会扩大权限。移出的负责人立即离开自己的待办，丧失该任务阅读权限（仍为发起人或管理员的除外），原跟进不删除。移出通知保留，但点击详情仍按当前权限判断。
+- 创建指派、改名单、修改、跟进、状态切换、完成、取消、恢复使用既有系统通知；除创建时的本人指派通知，操作者不重复收到通知，同一接收人去重。审计动作：`CREATE_TASK,UPDATE_TASK,FOLLOW_TASK,STATUS_TASK,COMPLETE_TASK,CANCEL_TASK,RESTORE_TASK`。写操作在事务中锁任务行，避免并发修改、取消与跟进相互穿透。
+- 未登录401，越权403，参数/状态错误400，不存在404；错误信息中文。没有附件、子任务、循环任务、项目看板、甘特图、真实推送、文档资料或新工作台汇总模块。
+
+### 合并到现有消息待办
+
+`GET /messages?category=pending&offset=0` 保留现有审批分类，返回当前轮到本人审批的单据与本人负责的 `TODO/IN_PROGRESS` 任务，按创建时间、id 倒序混排，每页最多200条。同时间同id用条目类型稳定排序。`GET /messages/summary` 的 `pending` 是两类全部记录总数，不受分页上限影响；任务完成、取消或移出名单立即退出列表与统计。
+
+审批条目新增 `item_type:"REQUEST"`，保留原单据字段；任务条目 `item_type:"TASK",task_id`，带任务字段、`creator_name,overdue`，不要把其 id 当成审批单号；两类 id 可相同。客户端分别调用 `/requests/{id}` 与 `/tasks/{task_id}`。其他审批分类仍保留，通过 `/tasks?scope=initiated` 查看自己发起且未取消的任务。系统通知返回可空 `task_id`，三端可据此打开任务详情，旧单据与会议通知不受影响。
+
+验收：`python3 scripts/verify-phase2-todo.py`（真实 PostgreSQL/Redis，含201项全量计数/分页与审批共存）、`npm --prefix admin run test:e2e -- tasks.spec.ts`、`cd mobile && flutter analyze && flutter test`。管理员测试密码用 `OA_ADMIN_PASSWORD` 覆盖；浏览器测试使用隔离账号并走真实登录、创建指派、双类别详情、跟进完成及中文管理员恢复流程。测试数据保留历史和审计，测试输出与截图不提交。

@@ -5,10 +5,12 @@ import DataTable from './DataTable.vue';
 import MessageCenter from './MessageCenter.vue';
 import StaffRequest from './StaffRequest.vue';
 import Calendar from './Calendar.vue';
+import Tasks from './Tasks.vue';
+const taskId = ref<number|null>(null);
 const me = ref<Actor | null>(null), ready = ref(false), busy = ref(false), error = ref(''), message = ref('');
 const page = ref('apply'), passwordOpen = ref(false), detailId = ref<number | null>(null), revision = ref(0);
 const meetingId = ref<number | null>(null);
-const nav = [['calendar','日程与会议'],['apply','提交申请'],['messages','消息中心'],['directory','通讯录'],['punches','打卡记录'],['profile','个人中心']];
+const nav = [['tasks','待办任务'],['calendar','日程与会议'],['apply','提交申请'],['messages','消息中心'],['directory','通讯录'],['punches','打卡记录'],['profile','个人中心']];
 const title = computed(() => nav.find(n => n[0] === page.value)?.[1]);
 const login = reactive({ login: '', password: '', deviceName: '员工办公浏览器', platform: 'Web' });
 const password = reactive({ oldPassword: '', newPassword: '' });
@@ -83,8 +85,9 @@ onUnmounted(() => window.removeEventListener('oa-session-expired', expired));
     <main><header><h1>{{ title }}</h1><div class="user-bar"><span>{{ me.name }}</span><button :disabled="busy" @click="passwordOpen=true">修改密码</button><button :disabled="busy" @click="run(async()=>{await api('/auth/logout','POST');clearSession()})">退出登录</button></div></header>
       <p v-if="error" role="alert" class="error">{{ error }}</p><p v-if="message" role="status" class="success">{{ message }}</p>
       <StaffRequest v-if="page==='apply'" :key="revision" :me="me" @submitted="id=>{detailId=id;message='申请已提交'}" />
+      <Tasks v-if="page==='tasks'" :me="me" :task-id="taskId" />
       <Calendar v-if="page==='calendar'" :me="me" :meeting-id="meetingId" />
-      <MessageCenter @open-meeting="id=>{meetingId=id;page='calendar'}" v-if="page==='messages'" :refresh-key="revision" :departments="[]" @open-request="row=>detailId=row.id" />
+      <MessageCenter @open-task="id=>{taskId=id;page='tasks'}" @open-meeting="id=>{meetingId=id;page='calendar'}" v-if="page==='messages'" :refresh-key="revision" :departments="[]" @open-request="row=>detailId=row.id" />
       <section v-if="page==='directory' || page==='punches'" class="card">
         <p v-if="page==='punches'" class="success">网页仅供查看打卡记录。现场打卡需要手机定位与网络校验，请使用手机 App。</p>
         <form class="filters" @submit.prevent="run(async()=>{offset=0;await load()})">

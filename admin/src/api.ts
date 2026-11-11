@@ -59,6 +59,8 @@ export async function download(path: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 export const labels: Record<string, string> = {
+  TASK: '任务', REQUEST: '审批单', TODO: '待处理', IN_PROGRESS: '进行中', COMPLETED: '已完成',
+  CREATE_TASK:'创建任务', UPDATE_TASK:'修改任务', COMPLETE_TASK:'完成任务', CANCEL_TASK:'取消任务', RESTORE_TASK:'恢复任务', FOLLOW_TASK:'跟进任务', STATUS_TASK:'任务状态变更',
   CREATE_MEETING: '创建会议',
   UPDATE_MEETING: '修改会议',
   CANCEL_MEETING: '取消会议',

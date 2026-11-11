@@ -3,7 +3,7 @@ import { onMounted, ref, watch } from 'vue';
 import { api, download, display, type Row } from './api';
 import DataTable from './DataTable.vue';
 const props = defineProps<{ management?: boolean; departments: Row[]; refreshKey?: number }>();
-const emit = defineEmits<{ openRequest: [row: Row]; openMeeting: [id:number] }>();
+const emit = defineEmits<{ openRequest: [row: Row]; openMeeting: [id:number]; openTask: [id:number] }>();
 const categories = [ ['pending','待我审批'], ['initiated','我发起的'], ['cc','抄送我的'], ['notifications','系统通知（站内通知）'], ['announcements','公告'] ];
 const category = ref('pending'), rows = ref<Row[]>([]), summary = ref<Row>({}), offset = ref(0);
 const busy = ref(false), error = ref(''), editing = ref(false), detail = ref<Row | null>(null), receipts = ref<Row | null>(null);
@@ -65,7 +65,7 @@ watch(() => props.refreshKey, () => run(load));
     <div v-if="!management" class="actions" role="tablist" aria-label="消息分类">
       <button v-for="[key,label] in categories" :key="key" role="tab" :aria-selected="category===key" :disabled="busy" @click="run(async()=>{category=key!;offset=0;await load()})">{{ label }}</button>
     </div>
-    <DataTable :rows="rows" :columns="columns(management ? ['title:标题','published_at:发布时间','withdrawn_at:撤回时间','read_count:已读人数','unread_count:未读人数'] : category==='announcements' ? ['title:标题','published_at:发布时间','read_at:已读时间'] : category==='notifications' ? ['message:通知内容','created_at:时间','read_at:已读时间'] : ['id:单号','user_name:申请人','kind:类型','status:状态','created_at:提交时间'])">
+    <DataTable :rows="rows.map(r=>r.item_type==='TASK'?{...r,status:r.status==='CANCELLED'?'已取消':r.status,user_name:r.creator_name}:r)" :columns="columns(management ? ['title:标题','published_at:发布时间','withdrawn_at:撤回时间','read_count:已读人数','unread_count:未读人数'] : category==='announcements' ? ['title:标题','published_at:发布时间','read_at:已读时间'] : category==='notifications' ? ['message:通知内容','created_at:时间','read_at:已读时间'] : ['item_type:条目类型','id:编号','title:任务标题','user_name:申请人/发起人','kind:申请类型','status:状态','due_at:任务截止时间','overdue:已过期','created_at:提交时间'])">
       <template #actions="{ row }">
         <template v-if="management || category==='announcements'">
           <button @click="open(row)">{{ management ? '查看公告与回执' : '打开公告' }}</button>
@@ -74,10 +74,11 @@ watch(() => props.refreshKey, () => run(load));
         </template>
         <template v-else-if="category==='notifications'">
           <button v-if="!row.read_at" @click="run(async()=>{await api('/notifications/'+row.id+'/read','POST');await load()})">标为已读</button>
+          <button v-if="row.task_id" @click="emit('openTask',row.task_id)">查看任务</button>
           <button v-if="row.meeting_id" @click="emit('openMeeting',row.meeting_id)">查看会议</button>
           <button v-if="row.request_id" @click="emit('openRequest',{id:row.request_id})">查看单据</button>
         </template>
-        <button v-else @click="emit('openRequest',row)">查看单据</button>
+        <button v-else-if="row.item_type==='TASK'" @click="emit('openTask',row.task_id)">查看任务</button><button v-else @click="emit('openRequest',row)">查看单据</button>
       </template>
     </DataTable>
     <div class="pagination"><span>第 {{ offset/200+1 }} 页 · 每页最多 200 条</span><button :disabled="busy || offset===0" @click="run(async()=>{offset-=200;await load()})">上一页</button><button :disabled="busy || rows.length<200" @click="run(async()=>{offset+=200;await load()})">下一页</button></div>

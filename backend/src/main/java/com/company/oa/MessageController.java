@@ -30,10 +30,15 @@ class MessageController {
     return Map.of(
         "pending",
             db.queryForObject(
-                "SELECT count(*) FROM requests r JOIN approval_steps s ON s.request_id=r.id AND"
-                    + " s.step=r.current_step WHERE r.status='PENDING' AND s.approver_id=?",
-                Long.class,
-                id),
+                    "SELECT count(*) FROM requests r JOIN approval_steps s ON s.request_id=r.id AND"
+                        + " s.step=r.current_step WHERE r.status='PENDING' AND s.approver_id=?",
+                    Long.class,
+                    id)
+                + db.queryForObject(
+                    "SELECT count(*) FROM tasks t JOIN task_assignees a ON a.task_id=t.id WHERE"
+                        + " a.user_id=? AND t.status IN ('TODO','IN_PROGRESS')",
+                    Long.class,
+                    id),
         "notifications",
             db.queryForObject(
                 "SELECT count(*) FROM notifications WHERE user_id=? AND read_at IS NULL",
@@ -68,6 +73,37 @@ class MessageController {
           a.id(),
           start);
     ApiException.require(Set.of("pending", "initiated", "cc").contains(category), "消息类别无效");
+    if (category.equals("pending")) {
+      // JSON keeps every existing approval field while giving tasks their own shape.
+      var data =
+          db.queryForList(
+              "SELECT data::text FROM (SELECT"
+                  + " to_jsonb(r)||jsonb_build_object('item_type','REQUEST','user_name',u.name,'employee_no',u.employee_no,'type_name',lt.name,'approver_id',s.approver_id)"
+                  + " data,r.created_at,r.id FROM requests r JOIN users u ON u.id=r.user_id LEFT"
+                  + " JOIN leave_types lt ON lt.id=r.type_id JOIN approval_steps s ON"
+                  + " s.request_id=r.id AND s.step=r.current_step WHERE r.status='PENDING' AND"
+                  + " s.approver_id=? UNION ALL SELECT"
+                  + " to_jsonb(t)||jsonb_build_object('item_type','TASK','task_id',t.id,'creator_name',u.name,'overdue',t.due_at<localtimestamp)"
+                  + " data,t.created_at,t.id FROM tasks t JOIN users u ON u.id=t.creator_id JOIN"
+                  + " task_assignees a ON a.task_id=t.id WHERE a.user_id=? AND t.status IN"
+                  + " ('TODO','IN_PROGRESS')) combined ORDER BY created_at DESC,id"
+                  + " DESC,data->>'item_type' LIMIT 200 OFFSET ?",
+              String.class,
+              a.id(),
+              a.id(),
+              start);
+      var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+      return data.stream()
+          .map(
+              json -> {
+                try {
+                  return mapper.readValue(json, Map.class);
+                } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                  throw new IllegalStateException(e);
+                }
+              })
+          .toList();
+    }
     var q = requests.requestQuery(a, "", "", null, category.equals("pending"));
     String clause =
         category.equals("initiated")
@@ -78,6 +114,9 @@ class MessageController {
     if (!clause.isEmpty()) q.params().add(a.id());
     q.params().add(start);
     return db.queryForList(
-        q.sql() + clause + " ORDER BY r.id DESC LIMIT 200 OFFSET ?", q.params().toArray());
+        q.sql().replace("SELECT r.*", "SELECT 'REQUEST' item_type,r.*")
+            + clause
+            + " ORDER BY r.id DESC LIMIT 200 OFFSET ?",
+        q.params().toArray());
   }
 }

@@ -4,6 +4,8 @@ import { api, download, display, labels, setToken, type Actor, type Row } from '
 import DataTable from './DataTable.vue';
 import MessageCenter from './MessageCenter.vue';
 import Calendar from './Calendar.vue';
+import Tasks from './Tasks.vue';
+const taskId = ref<number|null>(null);
 const meetingId = ref<number | null>(null);
 
 const me = ref<Actor | null>(null),
@@ -110,6 +112,7 @@ const filters = reactive({ userId: '', status: '', kind: '', from: '', to: '' })
 const roleOptions = ['EMPLOYEE', 'SUPERVISOR', 'DEPT_HEAD', 'ADMIN', 'FINANCE'];
 const nav = computed(() => isAdmin.value ? [
   { key: 'overview', title: '工作台', icon: '概' },
+  { key: 'tasks', title: '待办任务', icon: '任' },
   { key: 'calendar', title: '日程与会议', icon: '会' },
   { key: 'departments', title: '部门组织', icon: '组' },
   { key: 'users', title: '账号与角色', icon: '人' },
@@ -285,7 +288,7 @@ function query(exporting = false) {
   return '?' + p;
 }
 async function load() {
-  if (page.value === 'calendar') return;
+  if (['calendar','tasks'].includes(page.value)) return;
   loading.value = true;
   try {
     if (page.value === 'workflow') {
@@ -767,8 +770,9 @@ onMounted(async () => {
           ><button class="primary" :disabled="busy">提交模拟打卡</button>
         </form>
       </section>
+      <Tasks v-else-if="page==='tasks' && me" :me="me" :management="isAdmin" :task-id="taskId" />
       <Calendar v-else-if="page==='calendar' && me" :me="me" :management="isAdmin" :meeting-id="meetingId" />
-      <MessageCenter @open-meeting="id=>{meetingId=id;page='calendar'}" v-else-if="['messages','announcements'].includes(page)" :key="page" :management="page==='announcements'" :departments="departments" @open-request="showDetail" />
+      <MessageCenter @open-task="id=>{taskId=id;page='tasks'}" @open-meeting="id=>{meetingId=id;page='calendar'}" v-else-if="['messages','announcements'].includes(page)" :key="page" :management="page==='announcements'" :departments="departments" @open-request="showDetail" />
       <section v-else class="card records">
         <div class="section-toolbar">
           <div>

@@ -12,7 +12,7 @@ defineProps<{ rows: Row[]; columns: { key: string; label: string }[] }>();
         </tr>
       </thead>
       <tbody>
-        <tr v-for="(r, i) in rows" :key="r.id ?? i">
+        <tr v-for="(r, i) in rows" :key="r.item_type ? r.item_type+':'+r.id : (r.id ?? i)">
           <td v-for="c in columns" :key="c.key">
             <span :class="c.key === 'status' ? ['badge', String(r[c.key]).toLowerCase()] : ''">{{
               display(r[c.key])

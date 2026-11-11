@@ -8,6 +8,7 @@ import 'validation.dart';
 import 'main.dart' show PasswordPage;
 import 'requests.dart';
 import 'calendar.dart';
+import 'tasks.dart';
 
 class HomePage extends StatefulWidget {
   final Api api;
@@ -109,6 +110,11 @@ class _HomeState extends State<HomePage> with Guard<HomePage> {
           ),
           section('常用功能'),
           for (final entry in <(String, IconData, Widget)>[
+            (
+              '待办任务',
+              Icons.task_alt,
+              TasksPage(api: widget.api, user: widget.user),
+            ),
             (
               '日程与会议',
               Icons.calendar_month,
@@ -336,7 +342,16 @@ class _MessageState extends State<MessagePage> with Guard<MessagePage> {
           );
         }
         if (!mounted) return;
-        if (row['meeting_id'] != null) {
+        if (row['task_id'] != null) {
+          await go(
+            context,
+            TaskPage(
+              api: widget.api,
+              user: widget.user,
+              id: row['task_id'] as int,
+            ),
+          );
+        } else if (row['meeting_id'] != null) {
           await go(
             context,
             MeetingPage(
@@ -370,6 +385,11 @@ class _MessageState extends State<MessagePage> with Guard<MessagePage> {
           );
         }
       });
+    } else if (row['item_type'] == 'TASK') {
+      await go(
+        context,
+        TaskPage(api: widget.api, user: widget.user, id: row['task_id'] as int),
+      );
     } else {
       await go(
         context,
@@ -450,12 +470,18 @@ class _MessageState extends State<MessagePage> with Guard<MessagePage> {
                         color: const Color(0xff176b64),
                       ),
                       title: Text(
-                        '${r['title'] ?? r['message'] ?? '${textOf(r['kind'])} · ${r['user_name']}'}',
+                        '${r['item_type'] == 'TASK'
+                            ? '任务 · '
+                            : r['item_type'] == 'REQUEST'
+                            ? '审批单 · '
+                            : ''}${r['title'] ?? r['message'] ?? '${textOf(r['kind'])} · ${r['user_name']}'}',
                       ),
                       subtitle: Text(
                         category == 'announcements' ||
                                 category == 'notifications'
                             ? '${r['read_at'] == null ? '未读' : '已读'} · ${timeOf(r['published_at'] ?? r['created_at'])}'
+                            : r['item_type'] == 'TASK'
+                            ? '${taskStates[r['status']]} · 截止：${timeOf(r['due_at'])}${r['overdue'] == true ? '（已过期）' : ''}'
                             : '${textOf(r['status'])} · ${r['reason'] ?? ''}\n${timeOf(r['created_at'])}',
                       ),
                       trailing: const Icon(Icons.chevron_right),
