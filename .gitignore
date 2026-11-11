@@ -1,0 +1,17 @@
+.codex-last-message.md
+codex-run.log
+codex-run.jsonl
+.idea/
+.vscode/
+*.iml
+target/
+.mvn/wrapper/maven-wrapper.jar
+node_modules/
+dist/
+.DS_Store
+uploads/
+data/postgres/
+data/redis/
+*.log
+.env
+!.env.example
