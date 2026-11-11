@@ -8,7 +8,7 @@
 - `GET /auth/me` → `user: {id,name,roles,mustChange,version}`、`development`。
 - `POST /auth/password`：`{"oldPassword":"原密码","newPassword":"至少10位新密码"}`。密码最多 72 个 UTF-8 字节，修改后所有旧会话失效，须重新登录。
 - `POST /auth/logout`：销毁当前会话。
-- 首次登录只允许查自身、改密码及退出。普通员工只看本人数据；审批人额外可查看分配给自己的单据；财务额外可查看全部已批准报销及其票据，供人工支付登记；管理员可查询全员、代提交和处理审批，但不可自批。
+- 首次登录只允许查自身、改密码及退出。普通员工只看本人数据；审批人额外可查看分配给自己的单据；抄送人可查看抄送单据及附件，公告接收人可查看未撤回公告；财务额外可查看全部已批准报销及其票据，供人工支付登记；管理员可查询全员、代提交和处理审批，但不可自批。
 - 角色枚举：`EMPLOYEE` 员工、`SUPERVISOR` 直属上级、`DEPT_HEAD` 部门负责人、`ADMIN` 管理员、`FINANCE` 财务/行政。
 
 ## 管理员维护
@@ -35,7 +35,7 @@
 
 - `GET /leave-types`：启用的假期类型；`GET /balances`：本人余额。
 - `POST /attachments`：multipart 字段 `file`，最多 10MB，仅 PDF/PNG/JPEG，返回 `id`。附件以随机 UUID 保存在本地目录，下载须鉴权。
-- `GET /attachments/{uuid}`：作者、关联申请人、审批链内人员、已批准报销的财务或管理员可下载，不开放静态上传目录。
+- `GET /attachments/{uuid}`：作者、关联申请人、审批链内人员、抄送人、未撤回公告的接收人、已批准报销的财务或管理员可下载，不开放静态上传目录。
 - `POST /requests`：提交示例：
 
 ```json
@@ -53,7 +53,7 @@
 
 天数由服务端计算，不能手填：起点 09:00/13:00，终点 13:00/18:00，上午和下午各半天，按自然日计含周末；跨年必须拆单。出差可用跨日时段覆盖夜间。结束时间须在未来，允许起始已到达的申请；仍需审批通过才能出勤。待批或已批申请之间不能重叠。年假/调休余额以开始年度为准，最终批准才扣减；年度上限只统计已批准且未撤销的假期。
 
-- `GET /requests?status=&kind=&userId=&inbox=false&offset=0`：每页最多 200 条。普通用户仅能看到本人或分配给其审批的单据。`inbox=true` 查当前轮到本人处理的待办。
+- `GET /requests?status=&kind=&userId=&inbox=false&offset=0`：每页最多 200 条。普通用户仅能看到本人、分配给其审批或抄送给其的单据。`inbox=true` 查当前轮到本人处理的待办。
 - `GET /requests/{id}`：单据与 `steps` 审批链、审批意见及时间；报销同时返回 `items`、`attachments`、`payment_history` 和支付状态字段。
 - `POST /requests/{id}/decision`：`{"approve":true,"comment":"同意"}`，驳回传 false 且意见必填。仅当前步骤审批人或管理员可处理；禁止自批。重复处理会拒绝。审批链和假期扣减/年度上限规则在提交时快照。
 - `POST /requests/{id}/cancel`：申请人或管理员撤回待批单，或撤销尚未开始的已批单。后者返还余额并向已批人生成站内通知；已开始及已批报销不可撤销。
@@ -83,7 +83,7 @@
 - 审批 `status` 继续使用 `PENDING/APPROVED/REJECTED/...`，支付状态独立存储于 `payment_status`：未批准为 null，最终批准后为 `UNPAID`（待支付），人工登记后为 `PAID`（已支付）。不调用银行或支付渠道，不自动打款，已批准报销仍不可撤销。
 - `POST /requests/{id}/payment`：财务或管理员提交 `{"status":"PAID","reason":"可选说明"}`；改回待支付使用 `{"status":"UNPAID","reason":"必填的更正原因"}`。仅已批准报销可操作，重复状态及空白更正原因返回 400；其他角色返回 403。使用单据行锁及事务，状态、历史和审计一起提交。
 - 单据上的 `payment_actor_id`、`payment_acted_at` 记录最近一次人工登记操作人和上海时间；详情的 `payment_history` 按时间顺序保留全部登记，包含 `status/actor_id/actor_name/acted_at/reason`。审计操作为 `MARK_EXPENSE_PAID` / `RESET_EXPENSE_UNPAID`，`target` 是单据 ID，可与历史中的原因关联核对。首次批准进入待支付沿用批准审计。
-- 财务可查询全部已批准报销（包括未经过财务二级审批的低额报销）及其票据，不能因此查看无关的未批准报销或其他类型单据；原有本人和审批链权限保持。后台财务账号仅显示审批单据入口，无组织维护或全员导出权限。
+- 财务可查询全部已批准报销（包括未经过财务二级审批的低额报销）及其票据，不能因此查看无关的未批准报销或其他类型单据；原有本人和审批链权限保持。后台财务账号显示审批单据和消息中心入口，无组织维护或全员导出权限。
 
 升级采用 Flyway V2 增量迁移：历史报销原总额和理由映射为一行明细，原附件映射为一张票据；历史已批准报销初始化为待支付，不补造支付人或支付时间。历史无票据单据保持可查看并提示，不追溯拒绝原有在途审批。新报销必须满足上述明细和票据规则。票据只校验文件类型、大小、归属和存在性，不做税票真实性识别或跨单据查重，也没有编辑已提交报销的接口。
 
@@ -122,3 +122,32 @@
 ## 导出
 
 管理员可用 `GET /admin/exports/requests.csv?userId=&status=&kind=` 和 `GET /admin/exports/punches.csv?userId=&from=&to=&kind=`。最多 10000 条，超限须缩小范围；UTF-8 BOM、标准 CSV 引号转义，并对可能被表格软件解释为公式的文本加前导单引号。导出有审计记录。
+
+## 公告与回执
+
+Flyway V3 新增公告、接收人快照、公告附件及申请抄送关联表；不改写历史审批或通知。
+
+| 路径 | 方法 | 作用 |
+| --- | --- | --- |
+| `/announcements` | POST | 仅管理员发布 `{title,body,departmentId?,attachmentIds?}`，返回 `{id}` |
+| `/announcements?management=false&offset=0` | GET | 本人接收且未撤回的公告；管理员传 `management=true` 可查全部和已读/未读人数 |
+| `/announcements/{id}` | GET | 正文及 `attachments:[{id,original_name}]`；接收人打开即记录首次 `read_at` |
+| `/announcements/{id}/read` | POST | 接收人标记已读，重复操作不覆盖首次时间 |
+| `/announcements/{id}/receipts` | GET | 仅管理员，返回 `{readCount,unreadCount,read:[],unread:[]}` |
+| `/announcements/{id}/withdraw` | POST | 仅管理员撤回，重复撤回不重复记审计 |
+
+标题必填且最多 200 字，正文必填且最多 50000 字，纯文本展示。`departmentId` 省略或 null 为全员，否则指定部门及其全部下级。发布与组织变更共用事务锁，快照仅包含当时启用员工，保存 `user_id/name/employee_no/department_name`；之后人员变动不增删、不改名。回执名单包含这些快照字段及 `read_at`，管理员即使撤回后仍可查询。管理员查看详情时，若自己在接收名单且公告未撤回，也记已读。
+
+附件先通过原 `/attachments` 上传，`attachmentIds` 最多 30 个且不重复，必须归当前发布管理员所有；类型 PDF/PNG/JPEG、单份最多 10MB。下载沿用 `GET /attachments/{uuid}`，公告接收人仅在未撤回时可下载，非接收人返回 403；原作者/管理员和关联申请的独立授权继续有效。非管理员非接收人不能看正文或回执；撤回后普通接收人正文、已读和公告附件访问均拒绝。发布/撤回审计为 `PUBLISH_ANNOUNCEMENT` / `WITHDRAW_ANNOUNCEMENT`，target 为公告 ID。无定时发布、评论或公告审批。
+
+## 申请抄送与消息中心
+
+`POST /requests` 四类申请均可额外传 `ccUserIds:[员工ID,...]`，管理员代提交相同。最多 100 项，省略/null/空数组表示不抄送；服务端去重，拒绝不存在、停用或申请人本人的 ID。`GET /colleagues` 返回当前启用且非本人的同事 `[{id,name,employee_no,department_name}]`，供选人使用。`GET /requests/{id}` 增加 `cc:[{id,name,employee_no,department_name}]`。历史单据为空名单。
+
+抄送人可查询单据列表、详情及关联证明/票据；抄送身份本身不给审批、撤回/撤销或支付权限，所有写操作仍按原规则鉴权。已有审批人/财务/管理员角色的独立授权保持。提交和最终通过/驳回各产生一条抄送系统通知，含 `request_id` 可定位详情；中间审批不发送终审通知。
+
+- `GET /messages?category=pending|initiated|cc|notifications|announcements&offset=0`：分别为当前轮到本人审批、本人申请、抄送本人、本人系统通知、本人未撤回公告；类别必填，无效类别 400。每页最多 200 条，按 ID 倒序，offset 负值按 0 处理。申请类沿用 `/requests` 字段；通知含 `id/message/created_at/read_at/request_id`（旧通知的 request_id 可为空）；公告含 `id/title/published_at/read_at`。
+- `GET /messages/summary` → `{pending:当前待办数,notifications:未读系统通知数,announcements:未读且未撤回公告数}`。三个字段各自为数字，统计全部记录，不受 200 条分页限制，可复用于后续 App 红点；没有自动推送或轮询。
+- 原 `GET /notifications` 继续返回本人最新 200 条；`POST /notifications/{id}/read` 保留首次已读时间，无权或不存在返回 403。消息中心使用同一张表，状态同步。
+
+所有新接口均需登录及完成首次改密；停用账号原有会话立即失效。业务时间仍为 Asia/Shanghai。本期不提供设备登记或推送发送接口，不连接 APNs、FCM 或厂商通道，无证书也可完整查询、阅读和下载站内消息。

@@ -768,3 +768,15 @@ dd {
     gap: 0 10px;
   }
 }
+
+.announcement-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.8;
+}
+[role="tablist"] {
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+[role="tab"][aria-selected="true"] { background: #163f36; color: white; }
+select[multiple] { min-height: 110px; }

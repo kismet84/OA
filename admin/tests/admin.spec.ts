@@ -88,7 +88,7 @@ test('管理员通过中文页面维护组织、账号、审批并核对打卡',
   await expect(page.getByRole('status')).toContainText('打卡成功');
   await page.locator('nav').getByRole('button', { name: '打卡记录' }).click();
   await expect(page.getByRole('row').filter({ hasText: userName })).toContainText('正常打卡');
-  for (const name of ['假期配置', '假期余额', '审批分流', '站内通知', '操作审计']) {
+  for (const name of ['假期配置', '假期余额', '审批分流', '消息中心', '操作审计']) {
     await page.locator('nav').getByRole('button', { name }).click();
     await expect(page.getByRole('heading', { name, exact: true }).first()).toBeVisible();
   }
@@ -228,7 +228,8 @@ test('报销页面校验明细和票据，管理员及财务登记支付更正',
   await page.getByLabel('工号 / 手机号').fill(login);
   await page.getByLabel('密码', { exact: true }).fill('Finance@2026Changed');
   await page.getByRole('button', { name: '登录管理后台', exact: true }).click();
-  await expect(page.locator('nav').getByRole('button')).toHaveCount(1);
+  await expect(page.locator('nav').getByRole('button')).toHaveCount(2);
+  await expect(page.locator('nav').getByRole('button', { name: '消息中心' })).toBeVisible();
   await expect(page.getByRole('button', { name: '提交申请', exact: true })).toHaveCount(0);
   await page.getByRole('row').filter({ hasText: employee }).getByRole('button', { name: '查看 / 审批' }).click();
   await expect(dialog).toContainText(employee);

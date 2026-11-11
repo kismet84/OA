@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { api, download, display, labels, setToken, type Actor, type Row } from './api';
 import DataTable from './DataTable.vue';
+import MessageCenter from './MessageCenter.vue';
 
 const me = ref<Actor | null>(null),
   development = ref(false),
@@ -69,6 +70,7 @@ const application = reactive({
   attachmentId: null as string | null,
   items: [{ description: '', amount: 0 }],
   attachmentIds: [] as string[],
+  ccUserIds: [] as number[],
 });
 const receipts = ref<{ id: string; name: string }[]>([]);
 const paymentReason = ref('');
@@ -97,9 +99,10 @@ const nav = computed(() => isAdmin.value ? [
   { key: 'requests', title: '审批单据', icon: '审' },
   { key: 'punches', title: '打卡记录', icon: '勤' },
   ...(development.value ? [{ key: 'simulator', title: '模拟打卡', icon: '测' }] : []),
-  { key: 'notifications', title: '站内通知', icon: '信' },
+  { key: 'messages', title: '消息中心', icon: '信' },
+  { key: 'announcements', title: '公告管理', icon: '告' },
   { key: 'audit', title: '操作审计', icon: '志' },
-] : [{ key: 'requests', title: '审批单据', icon: '审' }]);
+] : [{ key: 'requests', title: '审批单据', icon: '审' }, { key: 'messages', title: '消息中心', icon: '信' }]);
 const pageTitle = computed(() => nav.value.find((n) => n.key === page.value)?.title || '管理后台');
 const enabledUsers = computed(() => users.value.filter((u) => u.enabled));
 const nameOf = (id: number | null) => users.value.find((u) => u.id === id)?.name || '未指定';
@@ -203,15 +206,9 @@ async function session() {
   const data = await api('/auth/me');
   me.value = data.user;
   development.value = data.development;
-  if (!me.value?.roles.split(',').some(r => ['ADMIN', 'FINANCE'].includes(r))) {
-    await api('/auth/logout', 'POST');
-    setToken('');
-    me.value = null;
-    throw new Error('此后台仅供管理员或财务使用；员工及其他审批人请使用接口');
-  }
-  if (!me.value.mustChange) {
+  if (me.value && !me.value.mustChange) {
     await references();
-    await navigate(isAdmin.value ? 'overview' : 'requests');
+    await navigate(isAdmin.value ? 'overview' : me.value.roles.split(',').includes('FINANCE') ? 'requests' : 'messages');
   }
 }
 async function signIn() {
@@ -241,7 +238,7 @@ async function changePassword() {
   }, '密码已修改，请用新密码重新登录');
 }
 async function references() {
-  if (!isAdmin.value) return;
+  if (!isAdmin.value) { users.value = await api('/colleagues'); return; }
   [users.value, departments.value, types.value] = await Promise.all([
     api('/admin/users'),
     api('/admin/departments'),
@@ -271,7 +268,7 @@ async function load() {
         expenseThreshold: w.expense_threshold,
         financeId: w.finance_id,
       });
-    } else if (['overview', 'simulator'].includes(page.value)) rows.value = [];
+    } else if (['overview', 'simulator', 'messages', 'announcements'].includes(page.value)) rows.value = [];
     else if (['requests', 'punches'].includes(page.value))
       rows.value = await api('/' + page.value + query());
     else rows.value = await api((page.value === 'notifications' ? '/' : '/admin/') + page.value);
@@ -330,6 +327,7 @@ function openCreate() {
       amount: 0,
       items: [{ description: '', amount: 0 }],
       attachmentIds: [],
+      ccUserIds: [],
       attachmentId: null,
     });
     attachmentName.value = '';
@@ -494,7 +492,7 @@ onMounted(async () => {
       <p class="eyebrow">公司内部管理平台</p>
       <h1>组织有序<br />协作有据</h1>
       <p>账号与组织 · 申请与审批 · 出勤记录</p>
-      <small>一期管理后台 / 仅供授权管理员或财务使用</small>
+      <small>一期管理后台 / 员工消息中心与授权管理入口</small>
     </section>
     <section class="login-panel">
       <form @submit.prevent="signIn">
@@ -728,6 +726,7 @@ onMounted(async () => {
           ><button class="primary" :disabled="busy">提交模拟打卡</button>
         </form>
       </section>
+      <MessageCenter v-else-if="['messages','announcements'].includes(page)" :key="page" :management="page==='announcements'" :departments="departments" @open-request="showDetail" />
       <section v-else class="card records">
         <div class="section-toolbar">
           <div>
@@ -969,11 +968,12 @@ onMounted(async () => {
             <h3>支付状态：{{ display(detail.payment_status) }}</h3>
             <p>最近操作时间：{{ display(detail.payment_acted_at) }}</p>
             <ol class="timeline"><li v-for="h in detail.payment_history" :key="h.id">{{ h.actor_name }} · {{ display(h.status) }} · {{ display(h.acted_at) }}<p>{{ h.reason }}</p></li></ol>
-            <form v-if="detail.status === 'APPROVED'" @submit.prevent="markPayment(detail!.payment_status === 'PAID' ? 'UNPAID' : 'PAID')">
+            <form v-if="detail.status === 'APPROVED' && (isAdmin || me.roles.split(',').includes('FINANCE'))" @submit.prevent="markPayment(detail!.payment_status === 'PAID' ? 'UNPAID' : 'PAID')">
               <label>支付更正原因（改回待支付必填）<textarea v-model="paymentReason" maxlength="1000" :required="detail.payment_status === 'PAID'" /></label>
               <button class="primary" :disabled="busy">{{ detail.payment_status === 'PAID' ? '改回待支付' : '标记已支付' }}</button>
             </form>
           </template>
+          <h3>抄送名单</h3><p>{{ detail.cc?.map((u: Row) => u.name + '（' + u.employee_no + '）').join('、') || '无' }}</p>
           <h3>审批记录</h3>
           <ol class="timeline">
             <li v-for="s in detail.steps" :key="s.step">
@@ -1167,7 +1167,7 @@ onMounted(async () => {
                 </option>
               </select></label
             ><label
-              >申请类型<select v-model="application.kind">
+              >申请类型<select v-model="application.kind" aria-label="申请类型">
                 <option value="LEAVE">请假</option>
                 <option value="TRAVEL">出差</option>
                 <option value="OUTING">外出</option>
@@ -1216,7 +1216,11 @@ onMounted(async () => {
               </div>
               <button type="button" @click="application.items.push({ description: '', amount: 0 })">添加明细</button>
               <p>明细合计：{{ application.items.reduce((sum, item) => sum + Number(item.amount), 0).toFixed(2) }} 元，须与申报总额一致。</p>
-            </template><label
+            </template><label>抄送同事（可多选）
+              <select v-model="application.ccUserIds" multiple aria-label="抄送同事（可多选）">
+                <option v-for="u in enabledUsers.filter(u => u.id !== application.userId)" :key="u.id" :value="u.id">{{ u.name }}（{{ u.employee_no }}）</option>
+              </select>
+            </label><label
               >申请理由<textarea v-model="application.reason" maxlength="2000" required /></label
             ><label
               >{{ application.kind === 'EXPENSE' ? '票据附件（必填，可多张）' : '证明文件（PDF / PNG / JPEG，最多 10MB）' }}<input

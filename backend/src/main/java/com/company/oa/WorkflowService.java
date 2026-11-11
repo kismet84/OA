@@ -35,7 +35,8 @@ public class WorkflowService {
       @NotBlank @Size(max = 2000) String reason,
       UUID attachmentId,
       @Size(max = 100) List<@NotNull @Valid ExpenseItem> items,
-      @Size(max = 30) List<@NotNull UUID> attachmentIds) {}
+      @Size(max = 30) List<@NotNull UUID> attachmentIds,
+      @Size(max = 100) List<@NotNull Long> ccUserIds) {}
 
   public record ExpenseItem(
       @NotBlank @Size(max = 200) String description,
@@ -64,6 +65,11 @@ public class WorkflowService {
     if (user != actor.id()) actor.requireAdmin();
     var u = lockedUser(user);
     ApiException.require((boolean) u.get("enabled"), "申请人已停用");
+    var cc = in.ccUserIds() == null ? Set.<Long>of() : new LinkedHashSet<>(in.ccUserIds());
+    for (long recipient : cc) {
+      ApiException.require(recipient != user, "抄送人不能是申请人本人");
+      ApiException.require(db.queryForObject("SELECT count(*) FROM users WHERE id=? AND enabled", Long.class, recipient) == 1, "抄送人不存在或已停用");
+    }
     BigDecimal duration = null;
     Map<String, Object> type = null;
     if (!in.kind().equals("EXPENSE")) {
@@ -179,6 +185,10 @@ public class WorkflowService {
           id,
           n + 1,
           chain.get(n));
+    for (long recipient : cc) {
+      db.update("INSERT INTO request_cc VALUES(?,?)", id, recipient);
+      db.update("INSERT INTO notifications(user_id,message,request_id) VALUES(?,?,?)", recipient, "审批单 #" + id + " 抄送给您", id);
+    }
     notify(chain.getFirst(), "审批单 #" + id + " 待您处理");
     auth.audit(actor.id(), "SUBMIT_REQUEST", id);
     return id;
@@ -230,7 +240,9 @@ public class WorkflowService {
                 Long.class,
                 id,
                 a.id())
-            == 0) throw new ApiException(403, "无权查看该审批单");
+            == 0
+        && db.queryForObject("SELECT count(*) FROM request_cc WHERE request_id=? AND user_id=?", Long.class, id, a.id()) == 0)
+      throw new ApiException(403, "无权查看该审批单");
     return r;
   }
 
@@ -299,6 +311,8 @@ public class WorkflowService {
       notify(
           ((Number) nextSteps.getFirst().get("approver_id")).longValue(), "审批单 #" + id + " 待您处理");
     else notify(owner, "审批单 #" + id + (in.approve() ? " 已批准" : " 已驳回"));
+    if (!status.equals("PENDING"))
+      db.update("INSERT INTO notifications(user_id,message,request_id) SELECT user_id,?,request_id FROM request_cc WHERE request_id=?", "抄送审批单 #" + id + (in.approve() ? " 已批准" : " 已驳回"), id);
     auth.audit(actor.id(), in.approve() ? "APPROVE_REQUEST" : "REJECT_REQUEST", id);
   }
 

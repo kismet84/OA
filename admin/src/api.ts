@@ -57,6 +57,8 @@ export async function download(path: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 export const labels: Record<string, string> = {
+  PUBLISH_ANNOUNCEMENT: '发布公告',
+  WITHDRAW_ANNOUNCEMENT: '撤回公告',
   UNPAID: '待支付',
   PAID: '已支付',
   MARK_EXPENSE_PAID: '标记报销已支付',

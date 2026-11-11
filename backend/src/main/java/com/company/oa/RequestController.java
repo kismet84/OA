@@ -69,8 +69,9 @@ class RequestController {
     if (!a.admin()) {
       sql.append(
           " AND ((r.kind='EXPENSE' AND r.status='APPROVED' AND ?) OR r.user_id=? OR EXISTS(SELECT 1 FROM approval_steps s WHERE s.request_id=r.id AND"
-              + " s.approver_id=?))");
+              + " s.approver_id=?) OR EXISTS(SELECT 1 FROM request_cc c WHERE c.request_id=r.id AND c.user_id=?))");
       p.add(a.has("FINANCE"));
+      p.add(a.id());
       p.add(a.id());
       p.add(a.id());
     }
@@ -98,6 +99,7 @@ class RequestController {
   @GetMapping("/requests/{id}")
   Object detail(@PathVariable long id, HttpServletRequest req) {
     var r = new LinkedHashMap<>(workflow.get(id, Auth.actor(req), false));
+    r.put("cc", db.queryForList("SELECT u.id,u.name,u.employee_no,d.name department_name FROM request_cc c JOIN users u ON u.id=c.user_id JOIN departments d ON d.id=u.department_id WHERE c.request_id=? ORDER BY u.id", id));
     r.put(
         "steps",
         db.queryForList(
@@ -141,10 +143,11 @@ class RequestController {
 
   @PostMapping("/notifications/{id}/read")
   Object read(@PathVariable long id, HttpServletRequest req) {
-    db.update(
-        "UPDATE notifications SET read_at=current_timestamp WHERE id=? AND user_id=?",
+    int updated = db.update(
+        "UPDATE notifications SET read_at=coalesce(read_at,current_timestamp) WHERE id=? AND user_id=?",
         id,
         Auth.actor(req).id());
+    if (updated == 0) throw new ApiException(403, "无权访问该通知");
     return Map.of("message", "已读");
   }
 }

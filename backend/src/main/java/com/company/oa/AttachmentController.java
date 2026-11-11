@@ -31,7 +31,7 @@ class AttachmentController {
   @Transactional
   Object upload(@RequestParam MultipartFile file, HttpServletRequest req) throws IOException {
     byte[] bytes = file.getBytes();
-    ApiException.require(bytes.length > 0, "附件不能为空");
+    ApiException.require(bytes.length > 0 && bytes.length <= 10 * 1024 * 1024, "附件不能为空且不得超过 10MB");
     String type;
     if (bytes.length > 4
         && bytes[0] == '%'
@@ -73,14 +73,16 @@ class AttachmentController {
         && db.queryForObject(
                 "SELECT count(*) FROM requests r WHERE (r.attachment_id=? OR EXISTS(SELECT 1 FROM expense_attachments e WHERE e.request_id=r.id AND e.attachment_id=?)) AND ((r.kind='EXPENSE' AND r.status='APPROVED' AND ?) OR r.user_id=? OR"
                     + " EXISTS(SELECT 1 FROM approval_steps s WHERE s.request_id=r.id AND"
-                    + " s.approver_id=?))",
+                    + " s.approver_id=?) OR EXISTS(SELECT 1 FROM request_cc c WHERE c.request_id=r.id AND c.user_id=?))",
                 Long.class,
                 id,
                 id,
                 a.has("FINANCE"),
                 a.id(),
+                a.id(),
                 a.id())
-            == 0) throw new ApiException(403, "无权访问该附件");
+            == 0
+        && db.queryForObject("SELECT count(*) FROM announcement_attachments x JOIN announcements n ON n.id=x.announcement_id JOIN announcement_recipients r ON r.announcement_id=n.id WHERE x.attachment_id=? AND r.user_id=? AND n.withdrawn_at IS NULL", Long.class, id, a.id()) == 0) throw new ApiException(403, "无权访问该附件");
     Path path = root.resolve(id.toString());
     if (!Files.isRegularFile(path)) throw new ApiException(404, "附件文件缺失，请联系管理员");
     return ResponseEntity.ok()
