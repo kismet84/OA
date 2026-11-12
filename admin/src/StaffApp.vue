@@ -8,6 +8,7 @@ import Calendar from './Calendar.vue';
 import Tasks from './Tasks.vue';
 import Assets from './Assets.vue';
 import Contracts from './Contracts.vue';
+import Visitors from './Visitors.vue';
 const contractId=ref<number|null>(null);
 const assetRequestId=ref<number|null>(null);
 import Documents from './Documents.vue';
@@ -17,7 +18,7 @@ const taskId = ref<number|null>(null);
 const me = ref<Actor | null>(null), ready = ref(false), busy = ref(false), error = ref(''), message = ref('');
 const page = ref('apply'), passwordOpen = ref(false), detailId = ref<number | null>(null), revision = ref(0);
 const meetingId = ref<number | null>(null);
-const nav = [['contracts','合同管理'],['assets','资产领用'],['documents','文档资料'],['tasks','待办任务'],['calendar','日程与会议'],['apply','提交申请'],['messages','消息中心'],['directory','通讯录'],['punches','打卡记录'],['profile','个人中心']];
+const nav = [['visitors','访客管理'],['contracts','合同管理'],['assets','资产领用'],['documents','文档资料'],['tasks','待办任务'],['calendar','日程与会议'],['apply','提交申请'],['messages','消息中心'],['directory','通讯录'],['punches','打卡记录'],['profile','个人中心']];
 const title = computed(() => nav.find(n => n[0] === page.value)?.[1]);
 const login = reactive({ login: '', password: '', deviceName: '员工办公浏览器', platform: 'Web' });
 const password = reactive({ oldPassword: '', newPassword: '' });
@@ -96,6 +97,7 @@ onUnmounted(() => window.removeEventListener('oa-session-expired', expired));
       <Workbench v-if="page==='apply'" />
       <StaffRequest v-if="page==='apply'" :key="revision" :me="me" @submitted="id=>{detailId=id;message='申请已提交'}" />
       <Documents v-if="page==='documents'" :document-id="documentId" />
+      <Visitors v-if="page==='visitors'" :me="me" employee />
       <Contracts v-if="page==='contracts'" :me="me" :contract-id="contractId" />
       <Assets v-if="page==='assets'" :me="me" :request-id="assetRequestId" />
       <Tasks v-if="page==='tasks'" :me="me" :task-id="taskId" />

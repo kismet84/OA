@@ -95,7 +95,9 @@ test('员工网页：首次改密、手机号登录、六类提交、审批、�
   await nav(page,'打卡记录');await expect(page.getByText(/现场打卡需要手机定位与网络校验/)).toBeVisible();
   await nav(page,'个人中心');await expect(page.getByRole('table').first()).toContainText(String(year));
   await page.getByLabel('工作电话',{exact:true}).fill('021-87654321');await page.getByRole('button',{name:'保存工作电话'}).click();await expect(page.getByRole('status')).toContainText('工作电话已更新');
+  const revoked = page.waitForResponse(r => r.url().endsWith('/api/auth/sessions/others') && r.request().method() === 'DELETE');
   await page.getByRole('button',{name:'退出其他设备'}).click();
+  expect((await revoked).status()).toBe(200);
   expect((await request.get('/api/auth/me',{headers:{Authorization:'Bearer '+staff.token}})).status()).toBe(401);
   await page.setViewportSize({width:390,height:844});await nav(page,'提交申请');await expect(page.getByRole('heading',{name:'新建申请'})).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();await page.screenshot({path:'../.runtime/staff-mobile.png',fullPage:true});

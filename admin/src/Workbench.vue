@@ -3,6 +3,7 @@ import { onMounted, reactive, ref } from 'vue';
 import { api, type Row } from './api';
 import DataTable from './DataTable.vue';
 const props=defineProps<{company?:boolean}>();
+const visitors=ref<Row|null>(null);
 const data=ref<Row|null>(null), messages=ref<Row|null>(null), error=ref(''), busy=ref(false);
 const filters=reactive({from:'',to:'',scope:props.company?'team':'self',departmentId:''});
 async function load(){
@@ -14,6 +15,7 @@ async function load(){
     members.value=[]; records.value=null; selected.value=''; offset.value=0;
     data.value=result;filters.from=result.from;filters.to=result.to;
     messages.value=await api('/messages/summary');
+    visitors.value=await api('/visitors/summary');
   }catch(e){data.value=null;error.value=e instanceof Error?e.message:'汇总加载失败'}finally{busy.value=false}
 }
 onMounted(load);
@@ -32,6 +34,7 @@ const cols=(pairs:string[])=>pairs.map(p=>{const [key,label]=p.split(':');return
 <template>
 <section class="card workbench" aria-label="考勤与审批汇总">
   <h2>考勤与审批汇总</h2>
+  <p v-if="visitors">今日预约 {{visitors.todayReservations}} · 当前在场 {{visitors.present}}（按访客可见范围）</p>
   <p v-if="messages">待办 {{ messages.pending }} · 未读通知 {{ messages.notifications }} · 未读公告 {{ messages.announcements }}</p>
   <form class="filters" @submit.prevent="load">
     <label>汇总开始日期<input v-model="filters.from" type="date" required /></label>

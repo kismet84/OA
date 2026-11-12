@@ -508,3 +508,72 @@ npm --prefix admin run test:e2e -- contracts.spec.ts
 HTTP覆盖未登录401、越权403及列表隔离、编号409、分页、导出BOM与权限、50000边界、超阈值、同人去重、审批中锁定、驳回/撤回修改重提、归档、附件权限/跨业务隔离、到期与提醒两节点各一次、审计、原待办合并及六类工作台不变。浏览器覆盖员工移动网页起草提交、上级待办驳回、修改重提、上级/负责人/财务审批、盖章归档、管理员筛选导出和原待办数字保留。
 
 Flutter常规`flutter analyze && flutter test`覆盖中文合同表单、必填/冲突保留数据、长期及无固定金额、详情归档和合同待办导航。真实接口验收先运行上述HTTP脚本，从`.runtime/contracts-http-result.json`读取prefix，在mobile目录设置`OA_CONTRACT_PREFIX=<prefix>`后执行`flutter test test/contracts_live_test.dart`，使用独立测试账号完成登记、驳回重提、三级审批、附件归档下载与终止；未设置变量时跳过该真实接口用例。另保留Maven全量、Vue构建、既有HTTP与浏览器回归通过记录，未受后续改动影响的不重复运行。不生成APK、iOS签名或IPA，不启动cloudflared/watchdog/8088 nginx。
+
+## 三期：访客管理（V11）
+
+定位为100人以内公司的简单来访登记台账，无审批流、门禁/闸机、人脸或证件扫描，不发送短信、验证码及真实推送。以下路径均带 `/api` 前缀且必须登录；未登录401，越权403，参数和非法状态流转400，访客码分配重试耗尽或数据库唯一冲突409，错误为中文。V11只增量建表/索引及通知关联，SQL兼容PG15；本机实际验证数据库为PG17，未连接或迁移生产库。
+
+### 角色和隐私
+
+本期前台只用现有 `ADMIN`，**不新增 RECEPTION**。员工看自己作为接待人的记录；直属上级还可看 `users.manager_id` 指向自己的直接下属；ADMIN看全部。FINANCE、DEPT_HEAD没有额外访客特权。列表、筛选、汇总先限制可见范围，不返回全公司总数；指定无权接待人或直接访问无权记录403。员工端「我的访客」固定 `mine=true`，管理入口可以查全部可见记录。
+
+仅ADMIN可签到、签离、选在职接待人临时登记、读取接待人选项和导出。普通预约只能由本人作为接待人发起，ADMIN也不能通过普通预约替他人登记；代登记请用临时来访。取消仅限该条接待人。列表手机号对所有角色一律脱敏（如`138****1234`），详情完整手机号仅ADMIN和该条接待人可见，上级仍脱敏；ADMIN导出含完整手机号。
+
+访客姓名、手机号等仅用于来访登记，建议按公司制度定期清理已离开、已取消、已过期记录；本期不做自动删除。
+
+### 登记和状态流转
+
+| 接口 | 参数与行为 |
+| --- | --- |
+| `POST /visitors` | 本人预约，返回详情及六位访客码 |
+| `POST /visitors/temporary` | ADMIN临时登记，必填hostId，直接已到访并记录签到时间/通知 |
+| `GET /visitors/{id}` | 权限内详情，含isOwner及访客码 |
+| `POST /visitors/{id}/cancel` | 接待人取消待到访，无请求体 |
+| `POST /visitors/check-in` | ADMIN凭码签到，`{"code":"001234"}` |
+| `POST /visitors/{id}/check-in` | ADMIN搜索定位后签到，无请求体 |
+| `POST /visitors/{id}/check-out` | ADMIN签离已到访记录，无请求体 |
+| `GET /visitors/hosts` | ADMIN读取在职接待人选项，id/name/employee_no |
+
+预约及临时登记请求示例（时间均为Asia/Shanghai本地时间，不带时区）：
+
+```json
+{
+  "name":"张访客", "phone":"13812341234", "company":"来访单位",
+  "purpose":"业务交流", "people":2, "companions":"李同行",
+  "startAt":"2026-11-20T09:00:00", "endAt":"2026-11-20T11:00:00",
+  "plate":"", "note":""
+}
+```
+
+必填name≤100字、phone为7–20位数字、company≤200字、purpose≤1000字、people为1–100整数、startAt/endAt。随行姓名companions可空≤1000字、plate可空≤30字、note可空≤2000字。endAt须晚于startAt且晚于当前时间。临时登记另外传hostId，须为启用账号；一般预约hostId省略或只能为本人。
+
+响应保留数据库下划线字段（host_id、host_name、start_at、end_at、checked_in_at、checked_out_at），含name/phone/company/purpose/people/companions/plate/note/code/status/temporary；详情含isOwner，不暴露内部active_code。
+
+状态：`WAITING`待到访、`ARRIVED`已到访、`LEFT`已离开、`CANCELLED`已取消、`EXPIRED`已过期。数据库保留WAITING；列表、详情和导出以 `end_at < 上海当前时间` 且WAITING实时计算EXPIRED，无每日定时任务，等于结束时间尚未过期。只有有效WAITING可签到，只有ARRIVED可签离；取消、过期、重复签到、未签到签离、重复签离等均400且中文提示。已到访不因预计结束时间而自动签离或过期。
+
+访客码保留前导零，为6位数字。只在有效WAITING和ARRIVED中唯一；分配前释放过期预约的占用，LEFT/CANCELLED即刻释放；历史code字段保留。事务级PostgreSQL advisory lock串行化分配和流转，配合active_code唯一约束，随机碰撞最多重试100次后409。凭码接口只匹配当前有效记录，不会选中复用同码的历史记录。访客码仅用于前台登记查询，不作为门禁凭证。
+
+签到和临时登记向接待人插入原notifications系统通知，visitor_id唯一索引保证同一来访只发一次；失败流转不写通知。复用原消息中心，无单独推送接口，不新增消息大类。访客完全不加入`GET /messages?category=pending`或`GET /messages/summary.pending`；原六类审批及其工作台时效统计不变。
+
+### 列表、看板和导出
+
+- `GET /visitors`：from/to为日期，筛选预计时间段与该上海日期区间有交集的记录；status为上述五种状态；hostId为接待人；keyword模糊匹配姓名、单位、访客码、接待人姓名；mine=true仅本人。offset默认0且非负，limit默认200、范围1–200。按预计开始时间及ID倒序，返回数组，无越权总数。
+- `GET /visitors/summary`：返回todayReservations、present，均按当前访客可见范围。前者为预计开始日期在上海今天的预约记录数（不含临时登记，包含取消记录），后者为所有ARRIVED记录的people合计（含随行人及跨日未签离记录）。工作台展示两项，不受工作台审批统计筛选影响；「今日访客」列表按预计时间与今天交集筛选。
+- `GET /visitors/export`：仅ADMIN，支持上述过滤项（无分页），UTF-8 BOM CSV，含完整手机号、人数/随行人/接待人、预计时段、访客码、中文状态、签到签离、车牌和备注。转义引号并防电子表格公式注入，写EXPORT_VISITORS审计；非ADMIN403。
+- 预约RESERVE_VISITOR、取消CANCEL_VISITOR、签到CHECKIN_VISITOR、签离CHECKOUT_VISITOR、临时登记REGISTER_TEMP_VISITOR均写原audit_logs。
+
+### 本地验收
+
+```bash
+source scripts/env.sh
+python3 scripts/verify-phase3-visitors.py
+npm --prefix admin run test:e2e -- visitors.spec.ts
+cd mobile
+/home/box/flutter/bin/flutter analyze --no-fatal-infos
+/home/box/flutter/bin/flutter test
+OA_VISITOR_FIXTURE=/workspace/oa-system/.runtime/visitors-http-result.json /home/box/flutter/bin/flutter test test/visitors_live_test.dart
+```
+
+HTTP覆盖未登录、越权、直属范围、手机号脱敏、参数、取消/过期/签到/签离、一次通知、16笔并发码唯一、过期码复用、临时登记、BOM导出及审计、原待办及六类工作台结果不变。VisitorTest另覆盖随机碰撞重试、耗尽409、CSV转义。浏览器复用HTTP生成的token避免重复登录；覆盖员工移动网页预约/取消、ADMIN凭码签到签离/临时登记/导出、原合同/资产/消息/工作台入口、无控制台错误和响应式截图。
+
+Flutter新增访客输入校验与北京时间、必填/409保留表单、我的访客/访客码/取消组件测试；真实API测试复用本地HTTP结果会话完成预约、签到签离、通知及取消。未设置OA_VISITOR_FIXTURE时真实测试跳过；该结果文件含会话，仅存.runtime，不得提交或外传。静态检查遗留合同测试文件一条不影响运行的info（unnecessary_brace_in_string_interps），访客代码无告警。仅补跑受影响回归，复用之前已通过且未受改动影响的验收；无iOS打包、正式签名、IPA或APK。本期不启动cloudflared、watchdog、8088 nginx，不运行dev-down.sh，不部署到MacBook或生产环境。

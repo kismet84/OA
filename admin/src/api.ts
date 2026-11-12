@@ -59,6 +59,7 @@ export async function download(path: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 export const labels: Record<string, string> = {
+  RESERVE_VISITOR: '预约访客', CANCEL_VISITOR: '取消访客预约', CHECKIN_VISITOR: '访客签到', CHECKOUT_VISITOR: '访客签离', REGISTER_TEMP_VISITOR: '临时来访登记', EXPORT_VISITORS: '导出访客台账',
   PUBLISH_DOCUMENT:'发布文档', UPDATE_DOCUMENT:'修改文档', WITHDRAW_DOCUMENT:'下架文档', REPUBLISH_DOCUMENT:'重新上架文档',
   CONTRACT:'合同', SAVE_CONTRACT:'登记合同', DELETE_CONTRACT:'删除合同草稿', SUBMIT_CONTRACT:'提交合同', APPROVE_CONTRACT:'合同通过', REJECT_CONTRACT:'合同驳回', WITHDRAW_CONTRACT:'撤回合同', ARCHIVE_CONTRACT:'归档合同', TERMINATE_CONTRACT:'终止合同', EXPORT_CONTRACTS:'导出合同', PREVIEW_CONTRACT_FILE:'预览合同附件', DOWNLOAD_CONTRACT_FILE:'下载合同附件',
   ASSET: '资产领用', READY:'待发放', ISSUED:'已发放', IN_USE:'使用中', RETURNED:'已归还',

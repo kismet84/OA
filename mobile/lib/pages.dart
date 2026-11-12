@@ -11,6 +11,7 @@ import 'calendar.dart';
 import 'tasks.dart';
 import 'assets.dart';
 import 'contracts.dart';
+import 'visitors.dart';
 import 'documents.dart';
 import 'workbench.dart';
 
@@ -129,6 +130,7 @@ class _HomeState extends State<HomePage> with Guard<HomePage> {
           ),
           section('常用功能'),
           for (final entry in <(String, IconData, Widget)>[
+            ('访客管理', Icons.people_outline, VisitorsPage(api: widget.api)),
             (
               '合同管理',
               Icons.description_outlined,
