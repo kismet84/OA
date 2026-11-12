@@ -220,7 +220,14 @@ class _PunchState extends State<PunchPage> with Guard<PunchPage> {
   @override
   void initState() {
     super.initState();
+    startPunchLocationWarmup();
     load();
+  }
+
+  @override
+  void dispose() {
+    stopPunchLocationWarmup();
+    super.dispose();
   }
 
   Future<void> load() => run(() async {
@@ -230,7 +237,7 @@ class _PunchState extends State<PunchPage> with Guard<PunchPage> {
     position = null;
     usedLastKnown = false;
     ssid = null;
-    final location = await getPunchLocation();
+    final location = await getPunchLocation(allowStaleLastKnown: kind == 'NORMAL');
     final value = location.position;
     punchPayload(kind, value.latitude, value.longitude, value.accuracy);
     position = value;

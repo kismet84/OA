@@ -33,9 +33,12 @@ class FakeLocation extends GeolocatorPlatform {
   bool enabled = true;
   LocationPermission permission = LocationPermission.whileInUse;
   Object? error;
+  Object? locationManagerError;
   Position? current;
+  Position? locationManagerCurrent;
   Position? cached;
   int cacheCalls = 0;
+  final currentSettings = <LocationSettings?>[];
   @override
   Future<bool> isLocationServiceEnabled() async => enabled;
   @override
@@ -43,11 +46,23 @@ class FakeLocation extends GeolocatorPlatform {
   @override
   Future<LocationPermission> requestPermission() async => permission;
   @override
+  Stream<Position> getPositionStream({LocationSettings? locationSettings}) =>
+      const Stream.empty();
+  @override
   Future<Position> getCurrentPosition({
     LocationSettings? locationSettings,
   }) async {
+    currentSettings.add(locationSettings);
     expect(locationSettings?.accuracy, LocationAccuracy.medium);
-    expect(locationSettings?.timeLimit, const Duration(seconds: 25));
+    final forced =
+        locationSettings is AndroidSettings &&
+        locationSettings.forceLocationManager;
+    if (forced) {
+      expect(locationSettings.timeLimit, const Duration(seconds: 20));
+      if (locationManagerError != null) throw locationManagerError!;
+      return locationManagerCurrent ?? current!;
+    }
+    expect(locationSettings?.timeLimit, const Duration(seconds: 45));
     if (error != null) throw error!;
     return current!;
   }
@@ -76,12 +91,14 @@ void main() {
   late FakeLocation location;
   late UnavailableWifi wifi;
   setUp(() {
+    resetPunchLocationWarmupForTest();
     location = FakeLocation();
     GeolocatorPlatform.instance = location;
     wifi = UnavailableWifi();
     NetworkInfoPlatform.instance = wifi;
   });
   tearDown(() {
+    resetPunchLocationWarmupForTest();
     GeolocatorPlatform.instance = original;
     NetworkInfoPlatform.instance = originalWifi;
   });
@@ -92,26 +109,59 @@ void main() {
     expect(result.position, location.current);
     expect(result.usedLastKnown, false);
     expect(location.cacheCalls, 0);
+    expect(location.currentSettings, hasLength(1));
   });
 
-  test('Dart 和平台定位超时均可回退到新鲜且精度有效的定位', () async {
+  test('融合定位超时后回退到系统定位服务', () async {
+    location.error = TimeoutException('test');
+    location.locationManagerCurrent = position(latitude: 30.5);
+    final result = await getPunchLocation();
+    expect(result.position, location.locationManagerCurrent);
+    expect(result.usedLastKnown, false);
+    expect(location.cacheCalls, 0);
+    expect(location.currentSettings, hasLength(2));
+    expect(location.currentSettings.last, isA<AndroidSettings>());
+  });
+
+  test('Dart 和平台定位超时均可回退到 30 分钟内且精度有效的定位', () async {
     for (final error in [
       TimeoutException('test'),
       PlatformException(code: 'TIMEOUT'),
     ]) {
       location.error = error;
-      location.cached = position(accuracy: 200);
-      final result = await getPunchLocation();
+      location.locationManagerError = error;
+      location.cached = position(accuracy: 200, age: const Duration(minutes: 29));
+      final result = await getPunchLocation(allowStaleLastKnown: false);
       expect(result.position, location.cached);
       expect(result.usedLastKnown, true);
     }
   });
 
-  test('无缓存、过期、未来时间、无效精度及坐标均显示明确超时文案', () async {
+  test('正常打卡允许使用 24 小时内的最近定位；出勤则仍超时', () async {
     location.error = TimeoutException('test');
+    location.locationManagerError = TimeoutException('test');
+    location.cached = position(age: const Duration(hours: 13, minutes: 30));
+    final normal = await getPunchLocation();
+    expect(normal.position, location.cached);
+    expect(normal.usedLastKnown, true);
+    await expectLater(
+      getPunchLocation(allowStaleLastKnown: false),
+      throwsA(
+        isA<ApiError>().having(
+          (e) => e.message,
+          'message',
+          '定位超时，请到信号较好的地方重试',
+        ),
+      ),
+    );
+  });
+
+  test('无缓存、超过一天、未来时间、无效精度及坐标均显示明确超时文案', () async {
+    location.error = TimeoutException('test');
+    location.locationManagerError = TimeoutException('test');
     for (final cached in [
       null,
-      position(age: const Duration(minutes: 6)),
+      position(age: const Duration(hours: 24, minutes: 1)),
       position(age: const Duration(minutes: -1)),
       position(accuracy: 201),
       position(accuracy: 0),
@@ -181,6 +231,7 @@ void main() {
 
   testWidgets('超时不提交；再次定位使用缓存时显示来源和坐标，SSID失败仍可提交', (tester) async {
     location.error = TimeoutException('test');
+    location.locationManagerError = TimeoutException('test');
     Json? submitted;
     final api = Api(
       client: MockClient((request) async {
