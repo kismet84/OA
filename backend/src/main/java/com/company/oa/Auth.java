@@ -214,6 +214,7 @@ class AuthController {
   Object logout(HttpServletRequest req) {
     db.update(
         "UPDATE login_sessions SET revoked_at=now() WHERE id=?", Auth.sessionId(Auth.token(req)));
+    db.update("DELETE FROM push_tokens WHERE session_id=?", Auth.sessionId(Auth.token(req)));
     auth.redis.delete("session-id:" + Auth.sessionId(Auth.token(req)));
     auth.redis.delete("session:" + Auth.token(req));
     auth.audit(Auth.actor(req).id(), "LOGOUT", Auth.actor(req).id());

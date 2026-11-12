@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api")
 class CalendarController {
+  @org.springframework.beans.factory.annotation.Autowired
+  NotificationService notifications;
   final JdbcTemplate db;
   final Auth auth;
 
@@ -338,10 +340,8 @@ class CalendarController {
   }
 
   void notify(long user, long meeting, String message) {
-    db.update(
-        "INSERT INTO notifications(user_id,message,meeting_id) VALUES(?,?,?)",
-        user,
-        message,
+    notifications.write(user,
+        message, "meeting_id",
         meeting);
   }
 

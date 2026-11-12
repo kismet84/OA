@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/tasks")
 class TaskController {
+  @org.springframework.beans.factory.annotation.Autowired
+  NotificationService notifications;
   final JdbcTemplate db;
   final Auth auth;
   static final Set<String> STATES = Set.of("TODO", "IN_PROGRESS", "COMPLETED", "CANCELLED");
@@ -214,10 +216,8 @@ class TaskController {
         db.update("INSERT INTO task_assignees VALUES(?,?)", id, p);
         // Creating a self-assigned task still produces exactly one assignment notice.
         if (old == null)
-          db.update(
-              "INSERT INTO notifications(user_id,message,task_id) VALUES(?,?,?)",
-              p,
-              "任务指派：" + in.title(),
+          notifications.write(p,
+              "任务指派：" + in.title(), "task_id",
               id);
         else notify(p, a.id(), id, "任务指派：" + in.title());
       }
@@ -235,7 +235,7 @@ class TaskController {
 
   void notify(long user, long actor, long id, String text) {
     if (user != actor)
-      db.update("INSERT INTO notifications(user_id,message,task_id) VALUES(?,?,?)", user, text, id);
+      notifications.write(user, text, "task_id", id);
   }
 
   void notifyAll(long id, Map<String, Object> t, Actor a, String text) {

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -7,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 
 import 'api.dart';
+import 'push.dart';
 import 'ui.dart';
 import 'validation.dart';
 import 'pages.dart';
@@ -19,7 +21,13 @@ void main() {
 class EmployeeApp extends StatefulWidget {
   final Api? api;
   final bool restoreSession;
-  const EmployeeApp({super.key, this.api, this.restoreSession = true});
+  final PushDevice? pushDevice;
+  const EmployeeApp({
+    super.key,
+    this.api,
+    this.restoreSession = true,
+    this.pushDevice,
+  });
   @override
   State<EmployeeApp> createState() => _EmployeeAppState();
 }
@@ -28,6 +36,50 @@ class _EmployeeAppState extends State<EmployeeApp> {
   late final Api api = widget.api ?? Api();
   final storage = const FlutterSecureStorage();
   final navigator = GlobalKey<NavigatorState>();
+  late final PushRegistration? push = widget.pushDevice == null
+      ? PushRegistration.android(
+          api,
+          onForeground: foregroundPush,
+          onOpen: openMessages,
+        )
+      : PushRegistration(
+          api,
+          widget.pushDevice!,
+          onForeground: foregroundPush,
+          onOpen: openMessages,
+        );
+
+  void foregroundPush() {
+    if (user == null) return;
+    final context = navigator.currentContext;
+    if (context != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('收到新的系统通知，请查看消息中心'),
+          action: SnackBarAction(label: '查看', onPressed: openMessages),
+        ),
+      );
+    }
+  }
+
+  void openMessages() {
+    if (!mounted || user == null || user!['mustChange'] == true) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && user != null) {
+        navigator.currentState?.push(
+          MaterialPageRoute(
+            builder: (_) => MessagePage(api: api, user: user!),
+          ),
+        );
+      }
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  void startPush() {
+    if (user != null && user!['mustChange'] != true) unawaited(push?.start());
+  }
+
   Json? user;
   bool loading = true;
   String? startupError;
@@ -39,6 +91,7 @@ class _EmployeeAppState extends State<EmployeeApp> {
   }
 
   void expired() {
+    push?.deactivate();
     if (widget.restoreSession) storage.delete(key: 'oa_token');
     navigator.currentState?.popUntil((r) => r.isFirst);
     if (mounted) setState(() => user = null);
@@ -56,6 +109,7 @@ class _EmployeeAppState extends State<EmployeeApp> {
       }
     }
     if (mounted) setState(() => loading = false);
+    startPush();
   }
 
   Future<void> loggedIn(Json value) async {
@@ -63,10 +117,12 @@ class _EmployeeAppState extends State<EmployeeApp> {
       await storage.write(key: 'oa_token', value: api.token);
     }
     if (mounted) setState(() => user = value);
+    startPush();
   }
 
   Future<void> logout() async {
     try {
+      await push?.logout();
       await api.call('/auth/logout', method: 'POST');
     } finally {
       api.token = null;
@@ -76,6 +132,7 @@ class _EmployeeAppState extends State<EmployeeApp> {
 
   @override
   void dispose() {
+    push?.dispose();
     api.onUnauthorized = null;
     super.dispose();
   }

@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/assets")
 class AssetController {
+  @org.springframework.beans.factory.annotation.Autowired
+  NotificationService notifications;
   final JdbcTemplate db;
   final Auth auth;
 
@@ -60,10 +62,8 @@ class AssetController {
   }
 
   void notifyApplicant(Map<String, Object> r, String text) {
-    db.update(
-        "INSERT INTO notifications(user_id,message,asset_request_id) VALUES(?,?,?)",
-        r.get("user_id"),
-        "资产领用：" + text.substring(0, Math.min(text.length(), 480)),
+    notifications.write(r.get("user_id"),
+        "资产领用：" + text.substring(0, Math.min(text.length(), 480)), "asset_request_id",
         r.get("id"));
   }
 

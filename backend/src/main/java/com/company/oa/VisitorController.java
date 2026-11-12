@@ -11,10 +11,12 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.http.*;
 
-/** Small visitor ledger. No approvals, access-control hardware or external push. */
+/** Small visitor ledger. No approvals or access-control hardware. Arrival notices use the shared notification service. */
 @RestController
 @RequestMapping("/api/visitors")
 class VisitorController {
+  @org.springframework.beans.factory.annotation.Autowired
+  NotificationService notifications;
   final JdbcTemplate db; final Auth auth; final Clock clock;
   final IntSupplier digits = new java.security.SecureRandom()::nextInt;
   static final Set<String> STATES=Set.of("WAITING","ARRIVED","LEFT","CANCELLED","EXPIRED");
@@ -62,7 +64,7 @@ class VisitorController {
     long id=db.queryForObject("INSERT INTO visitors(host_id,name,phone,company,purpose,people,companions,start_at,end_at,plate,note,code,active_code,status,temporary,checked_in_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id",Long.class,host,in.name().trim(),in.phone(),in.company().trim(),in.purpose().trim(),in.people(),in.companions(),in.startAt(),in.endAt(),in.plate(),in.note(),code,code,temporary?"ARRIVED":"WAITING",temporary,temporary?at:null);
     if(temporary)notice(id,host,in.name());auth.audit(a.id(),temporary?"REGISTER_TEMP_VISITOR":"RESERVE_VISITOR",id);return get(id,a);
   }
-  void notice(long id,long host,Object name){db.update("INSERT INTO notifications(user_id,message,visitor_id) VALUES(?,?,?) ON CONFLICT (visitor_id) WHERE visitor_id IS NOT NULL DO NOTHING",host,"访客「"+name+"」已到访，请接待（来访 #"+id+"）",id);}
+  void notice(long id,long host,Object name){notifications.write(host,"访客「"+name+"」已到访，请接待（来访 #"+id+"）", "visitor_id",id);}
   @PostMapping("/{id}/cancel") @Transactional Object cancel(@PathVariable long id,HttpServletRequest req){var a=Auth.actor(req);lock();var r=get(id,a);if(((Number)r.get("host_id")).longValue()!=a.id())throw new ApiException(403,"仅接待人可取消预约");ApiException.require(r.get("status").equals("WAITING"),"仅待到访预约可取消");db.update("UPDATE visitors SET status='CANCELLED',active_code=NULL WHERE id=?",id);auth.audit(a.id(),"CANCEL_VISITOR",id);return get(id,a);}
   Object arrive(long id,Actor a){var r=get(id,a);ApiException.require(r.get("status").equals("WAITING"),"仅待到访预约可签到，已取消或已过期不能签到");db.update("UPDATE visitors SET status='ARRIVED',checked_in_at=? WHERE id=?",now(),id);notice(id,((Number)r.get("host_id")).longValue(),r.get("name"));auth.audit(a.id(),"CHECKIN_VISITOR",id);return get(id,a);}
   @PostMapping("/{id}/check-in") @Transactional Object checkIn(@PathVariable long id,HttpServletRequest req){var a=Auth.actor(req);a.requireAdmin();lock();return arrive(id,a);}

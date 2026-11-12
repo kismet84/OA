@@ -197,10 +197,10 @@ Flyway V3 新增公告、接收人快照、公告附件及申请抄送关联表�
 抄送人可查询单据列表、详情及关联证明/票据；抄送身份本身不给审批、撤回/撤销或支付权限，所有写操作仍按原规则鉴权。已有审批人/财务/管理员角色的独立授权保持。提交和最终通过/驳回各产生一条抄送系统通知，含 `request_id` 可定位详情；中间审批不发送终审通知。
 
 - `GET /messages?category=pending|initiated|cc|notifications|announcements&offset=0`：分别为当前轮到本人审批、本人申请、抄送本人、本人系统通知、本人未撤回公告；类别必填，无效类别 400。每页最多 200 条，按 ID 倒序，offset 负值按 0 处理。申请类沿用 `/requests` 字段；通知含 `id/message/created_at/read_at/request_id`（旧通知的 request_id 可为空）；公告含 `id/title/published_at/read_at`。
-- `GET /messages/summary` → `{pending:当前待办数,notifications:未读系统通知数,announcements:未读且未撤回公告数}`。三个字段各自为数字，统计全部记录，不受 200 条分页限制，可复用于后续 App 红点；没有自动推送或轮询。
+- `GET /messages/summary` → `{pending:当前待办数,notifications:未读系统通知数,announcements:未读且未撤回公告数}`。三个字段各自为数字，统计全部记录，不受 200 条分页限制，可复用于后续 App 红点；网页不自动推送或轮询；安卓系统通知推送见下文。
 - 原 `GET /notifications` 继续返回本人最新 200 条；`POST /notifications/{id}/read` 保留首次已读时间，无权或不存在返回 403。消息中心使用同一张表，状态同步。
 
-所有新接口均需登录及完成首次改密；停用账号原有会话立即失效。业务时间仍为 Asia/Shanghai。本期不提供设备登记或推送发送接口，不连接 APNs、FCM 或厂商通道，无证书也可完整查询、阅读和下载站内消息。
+所有新接口均需登录及完成首次改密；停用账号原有会话立即失效。业务时间仍为 Asia/Shanghai。安卓设备登记和 FCM 见下文；未配置凭证也可完整查询、阅读和下载站内消息。
 
 
 ## 员工资料、组织通讯录与设备会话（Flutter 一期）
@@ -222,7 +222,7 @@ Flyway V3 新增公告、接收人快照、公告附件及申请抄送关联表�
 
 设备 id 是随机登录 token 的 SHA-256 标识，不是可用于认证的 bearer token。有效会话同时检查 Redis、数据库到期/撤销状态、账号启用状态及 session_version。当前标识相对于请求者，管理员查看别人的设备时均为 false。退出单台不影响其他会话，越权退出他人设备返回404；非管理员调用管理接口403；退出当前设备后后续请求401；改密或管理员编辑账号后全部旧设备会话失效。登录/退出/撤销设备/改工作电话均有审计。设备名称和平台属于客户端声明信息，不代表硬件认证。
 
-迁移 `V4__employee_profile_and_sessions.sql` 仅新增字段和会话表，旧员工资料字段为空；升级前仅存在 Redis 的会话需重新登录登记设备。撤销和过期会话留在表中供审计关联，本期未实现定期清理任务。App 不接入真实推送，消息通过现有消息接口刷新。
+迁移 `V4__employee_profile_and_sessions.sql` 仅新增字段和会话表，旧员工资料字段为空；升级前仅存在 Redis 的会话需重新登录登记设备。撤销和过期会话留在表中供审计关联，本期未实现定期清理任务。安卓 App 支持 FCM，消息仍可通过现有消息接口刷新。
 
 
 ## 二期员工网页接入
@@ -269,7 +269,7 @@ Flyway V3 新增公告、接收人快照、公告附件及申请抄送关联表�
 - 个人日程冲突、人数超容量只返回 `warnings`，不阻断。三个客户端保存成功后展示提示。已取消默认隐藏，可通过 `includeCancelled=true` 查询，详情保留。
 - 列表仅包含占用摘要：`id,title,start_at,end_at,room_id,room_name,organizer_id,organizer_name,cancelled_at`，不泄露说明或名单。详情返回 `canEdit`、`canReply`；有权者另见 `description`、`attendees`。每位参会人包含 `user_id,name,employee_no`；组织者/管理员可见全部 `response,reason,responded_at`，普通参会人只见自己的回复及其他人的姓名工号。
 - 回复默认 `PENDING`（待回复），`ACCEPTED`（接受）、`DECLINED`（请假）；请假原因可空，最多300字。改开始/结束时间或会议室时重置保留参会人的回复和原因，再发通知；只改标题/说明不重置。新加入的人默认待回复并收到邀请；移出的人失去参会权限并收到移出通知。
-- 创建邀请、改期/换会议室、取消、新增/移出参会人均复用系统通知。组织者不重复收到参会邀请；通知含可空 `meeting_id`，旧 `request_id` 和旧通知兼容。Flutter、后台和 `/staff/` 消息中心可打开关联会议，无 APNs/FCM/厂商推送。
+- 创建邀请、改期/换会议室、取消、新增/移出参会人均复用系统通知。组织者不重复收到参会邀请；通知含可空 `meeting_id`，旧 `request_id` 和旧通知兼容。Flutter、后台和 `/staff/` 消息中心可打开关联会议，安卓 FCM 统一覆盖此类系统通知；无 APNs/厂商推送。
 - 审计动作：`SAVE_MEETING_ROOM`、`DISABLE_MEETING_ROOM`、`DELETE_MEETING_ROOM`、`CREATE_MEETING`、`UPDATE_MEETING`、`CANCEL_MEETING`、`REPLY_MEETING`。未登录401；越权403；输入错误400；会议室占用或启用名称冲突409；不存在404，错误为中文。
 
 验收：`python3 scripts/verify-phase2-calendar.py`（真实 PostgreSQL/Redis，含并发与权限）、`npm --prefix admin run test:e2e -- calendar.spec.ts`、`cd mobile && flutter test`。Flutter 真实接口用例额外提供 `OA_TEST_LOGIN`、`OA_TEST_PASSWORD`、`OA_TEST_MANAGER`（同密码的独立受邀测试账号）和 `OA_TEST_CALENDAR_ROOM_ID`；只使用专用账号/会议室，测试保留审计并取消自己的会议。
@@ -293,7 +293,7 @@ Flyway `V7__assigned_tasks.sql` 增量建立 `tasks`、当前负责人 `task_ass
 - 仅发起人或管理员可修改内容/名单或软取消。已完成仍可补充跟进、改标题/说明，但不能改负责人或截止；须由发起人或管理员重开到 `IN_PROGRESS` 后再改。已取消禁止编辑、跟进和改状态，仅管理员可纠错恢复到 `TODO`；恢复/重开通知负责人，历史跟进保留。
 - 发起人、当前负责人、管理员可查看完整任务，其他人详情和写操作403；列表始终按权限收窄，即使传他人筛选也不会扩大权限。移出的负责人立即离开自己的待办，丧失该任务阅读权限（仍为发起人或管理员的除外），原跟进不删除。移出通知保留，但点击详情仍按当前权限判断。
 - 创建指派、改名单、修改、跟进、状态切换、完成、取消、恢复使用既有系统通知；除创建时的本人指派通知，操作者不重复收到通知，同一接收人去重。审计动作：`CREATE_TASK,UPDATE_TASK,FOLLOW_TASK,STATUS_TASK,COMPLETE_TASK,CANCEL_TASK,RESTORE_TASK`。写操作在事务中锁任务行，避免并发修改、取消与跟进相互穿透。
-- 未登录401，越权403，参数/状态错误400，不存在404；错误信息中文。任务没有附件、子任务、循环任务、项目看板或甘特图；不接真实推送、不做新工作台汇总，文档资料为下文独立模块。
+- 未登录401，越权403，参数/状态错误400，不存在404；错误信息中文。任务没有附件、子任务、循环任务、项目看板或甘特图；通过统一系统通知接入安卓 FCM，不做新工作台汇总，文档资料为下文独立模块。
 
 ### 合并到现有消息待办
 
@@ -338,11 +338,11 @@ Flyway `V8__company_documents.sql` 新增公司文档、当前附件绑定、历
 - 水印包含登录查看人的姓名、工号及上海查看日期，烧录于内容区并有页脚。PDF由 [Apache PDFBox](https://pdfbox.apache.org/3.0/migration.html) 逐页渲染，预览与导出均不传递原始内容流、图层或图片元数据；预览长边至多约1800像素，下载PDF为栅格化水印版（不保留文字选择、链接和表单），图片导出PNG。服务端须具备中文字体（如Noto CJK；后端Docker镜像已安装），确保中文姓名可显示。
 - 所有水印二进制响应 `Cache-Control: no-store`；预览图片本身也带水印。禁止下载代表不提供完整导出，预览图片仍可截图/保存，不是DRM。允许下载后已导出的水印件不能远程收回。
 - 普通员工访问任何当前或历史文档附件的 `GET /attachments/{uuid}` 均403，不新增静态文件服务。管理员在后台可通过该鉴权接口取回原件；原公告/审批独立附件授权不变。
-- 发布、重新上架给当前接收人发系统通知；修改已发布文档只通知新进入范围的人，操作者本人不重复接收。修改下架文档不发通知，待重新上架统一通知。增加 `document_id` 的系统通知可从三端进入对应文档；已下架/失去权限则显示中文原因；不进入审批待办，不新增推送或工作台汇总。
+- 发布、重新上架给当前接收人发系统通知；修改已发布文档只通知新进入范围的人，操作者本人不重复接收。修改下架文档不发通知，待重新上架统一通知。增加 `document_id` 的系统通知可从三端进入对应文档；已下架/失去权限则显示中文原因；不进入审批待办，复用统一安卓 FCM，不新增工作台汇总。
 - 首次**成功生成预览页**记已读，详情、预览元数据和下载不记已读；修改和重新上架不清除首次时间。写操作及预览使用事务行锁，下架与预览授权顺序一致。审计复用原表：`PUBLISH_DOCUMENT`、`UPDATE_DOCUMENT`、`WITHDRAW_DOCUMENT`、`REPUBLISH_DOCUMENT`。
 - 未登录401，越权403，输入/页码/文件格式错误400，不存在404；错误为中文。普通员工不能创建上传公司文档或指定个人发送；不做网盘、协同编辑、Wiki、多级目录、权限矩阵、在线批注或全文检索引擎。
 
-验收：`python3 scripts/verify-phase2-docs.py`（需Python Pillow，真实HTTP与像素水印检查）、`npm --prefix admin run test:e2e -- documents.spec.ts`、Maven全部测试、`npm --prefix admin run build`、`cd mobile && flutter analyze && flutter test`。新浏览器用例走管理员发布、下级员工可见/水印预览/下载、范围外不可见、禁下载、下架消失、通知失效提示、恢复和回执；Flutter覆盖逐页预览、下载入口、二进制403及通知失去权限。仅本地验证，不涉及正式签名、IPA或真实推送。
+验收：`python3 scripts/verify-phase2-docs.py`（需Python Pillow，真实HTTP与像素水印检查）、`npm --prefix admin run test:e2e -- documents.spec.ts`、Maven全部测试、`npm --prefix admin run build`、`cd mobile && flutter analyze && flutter test`。新浏览器用例走管理员发布、下级员工可见/水印预览/下载、范围外不可见、禁下载、下架消失、通知失效提示、恢复和回执；Flutter覆盖逐页预览、下载入口、二进制403及通知失去权限。仅本地验证，不涉及正式签名或 IPA；安卓 FCM 见下文。
 
 ## 二期：工作台考勤与审批汇总
 
@@ -434,7 +434,7 @@ Flyway `V8__company_documents.sql` 新增公司文档、当前附件绑定、历
 
 `GET /messages?category=pending` 合并原六类审批、待办任务和资产，资产条目标记`item_type=ASSET`、title为「资产领用」。`GET /messages/summary.pending` 增加指定上级待审批、ADMIN/FINANCE待发放和待确认归还的申请数（按单计数）。原消息分类、未读和原审批/任务字段保持兼容。资产我的申请从资产页面查看，不改变消息中心“我发起的”原六类口径。
 
-批准、驳回、发放、拒发和确认归还向申请人写入原notifications系统通知，以asset_request_id关联，三端可打开详情；无真实推送。所有维护和状态流转写原audit_logs，库存调整记录数量/状态及原因。工作台六类审批统计继续仅取原requests，不计资产，全部考勤/审批汇总规则不变。
+批准、驳回、发放、拒发和确认归还向申请人写入原notifications系统通知，以asset_request_id关联，三端可打开详情；安卓 FCM 由统一通知入口发送。所有维护和状态流转写原audit_logs，库存调整记录数量/状态及原因。工作台六类审批统计继续仅取原requests，不计资产，全部考勤/审批汇总规则不变。
 
 本地验收：`source scripts/env.sh && python3 scripts/verify-phase3-assets.py`；浏览器 `npm --prefix admin run test:e2e -- assets.spec.ts` 覆盖后台登记、员工网页申请、上级混合待办审批、行政发放、员工归还及确认、消耗品扣减与移动网页。另跑Maven全部测试、前端构建、既有HTTP和浏览器回归，以及 `cd mobile && flutter analyze && flutter test`（资产组件测试含默认归还、表单冲突、归还登记、混合待办审批返回）。测试仅创建本地独立业务数据，不提交上传文件、构建产物或数据库。
 
@@ -493,7 +493,7 @@ name、type、counterparty、signedDate、effectiveDate必填。code最多100字
 
 `GET /contracts/{id}/files/{uuid}?preview=true`按合同可见权限内联预览；省略preview或false下载并写DOWNLOAD_CONTRACT_FILE审计；预览写PREVIEW_CONTRACT_FILE审计。仅能访问本合同已关联附件，带no-store与nosniff；合同扫描件按权限返回原文件，不使用文档资料的个性化水印重绘。通用`GET /attachments/{uuid}`对合同附件一律403，须走合同接口。
 
-每天上海08:00运行提醒，并在登录用户读取`GET /messages/summary`时补发。只处理TO_ARCHIVE/ACTIVE，expiry_date落在今天至今天+30或今天+7日（含首尾），按合同与节点唯一约束各发一次；服务停机跨过精确节点后，只要仍未到期即可补发，7天内首次补发可同时收到两条。已到期/终止不发，长期不发；同一合同修改到期日后不重置已发送节点。使用原notifications，contract_id关联，经办人收取，不接真实推送。
+每天上海08:00运行提醒，并在登录用户读取`GET /messages/summary`时补发。只处理TO_ARCHIVE/ACTIVE，expiry_date落在今天至今天+30或今天+7日（含首尾），按合同与节点唯一约束各发一次；服务停机跨过精确节点后，只要仍未到期即可补发，7天内首次补发可同时收到两条。已到期/终止不发，长期不发；同一合同修改到期日后不重置已发送节点。使用原notifications，contract_id关联，经办人收取，复用统一安卓 FCM。
 
 提交、分级通过、驳回、撤回、归档、终止及到期提醒向经办人写系统通知；提交/中间通过还通知下一审批人，终审组通知启用的ADMIN/FINANCE（排除申请人）。消息待办`GET /messages?category=pending`合并合同，`item_type=CONTRACT`、title为合同名称；三端显示「合同」并进入详情审批。`GET /messages/summary.pending`在原六类审批、任务及资产之上按合同加一，不增加消息大类。工作台统计仍仅取原requests六类，合同不参与审批时效。登记、删除、提交、审批、撤回、归档、终止、附件读取和导出均复用audit_logs。
 
@@ -511,7 +511,7 @@ Flutter常规`flutter analyze && flutter test`覆盖中文合同表单、必填/
 
 ## 三期：访客管理（V11）
 
-定位为100人以内公司的简单来访登记台账，无审批流、门禁/闸机、人脸或证件扫描，不发送短信、验证码及真实推送。以下路径均带 `/api` 前缀且必须登录；未登录401，越权403，参数和非法状态流转400，访客码分配重试耗尽或数据库唯一冲突409，错误为中文。V11只增量建表/索引及通知关联，SQL兼容PG15；本机实际验证数据库为PG17，未连接或迁移生产库。
+定位为100人以内公司的简单来访登记台账，无审批流、门禁/闸机、人脸或证件扫描，不发送短信或验证码；签到通知复用统一安卓 FCM。以下路径均带 `/api` 前缀且必须登录；未登录401，越权403，参数和非法状态流转400，访客码分配重试耗尽或数据库唯一冲突409，错误为中文。V11只增量建表/索引及通知关联，SQL兼容PG15；本机实际验证数据库为PG17，未连接或迁移生产库。
 
 ### 角色和隐私
 
@@ -553,7 +553,7 @@ Flutter常规`flutter analyze && flutter test`覆盖中文合同表单、必填/
 
 访客码保留前导零，为6位数字。只在有效WAITING和ARRIVED中唯一；分配前释放过期预约的占用，LEFT/CANCELLED即刻释放；历史code字段保留。事务级PostgreSQL advisory lock串行化分配和流转，配合active_code唯一约束，随机碰撞最多重试100次后409。凭码接口只匹配当前有效记录，不会选中复用同码的历史记录。访客码仅用于前台登记查询，不作为门禁凭证。
 
-签到和临时登记向接待人插入原notifications系统通知，visitor_id唯一索引保证同一来访只发一次；失败流转不写通知。复用原消息中心，无单独推送接口，不新增消息大类。访客完全不加入`GET /messages?category=pending`或`GET /messages/summary.pending`；原六类审批及其工作台时效统计不变。
+签到和临时登记向接待人插入原notifications系统通知，visitor_id唯一索引保证同一来访只发一次；失败流转不写通知。复用原消息中心及统一安卓 FCM，不新增消息大类。访客完全不加入`GET /messages?category=pending`或`GET /messages/summary.pending`；原六类审批及其工作台时效统计不变。
 
 ### 列表、看板和导出
 
@@ -577,3 +577,46 @@ OA_VISITOR_FIXTURE=/workspace/oa-system/.runtime/visitors-http-result.json /home
 HTTP覆盖未登录、越权、直属范围、手机号脱敏、参数、取消/过期/签到/签离、一次通知、16笔并发码唯一、过期码复用、临时登记、BOM导出及审计、原待办及六类工作台结果不变。VisitorTest另覆盖随机碰撞重试、耗尽409、CSV转义。浏览器复用HTTP生成的token避免重复登录；覆盖员工移动网页预约/取消、ADMIN凭码签到签离/临时登记/导出、原合同/资产/消息/工作台入口、无控制台错误和响应式截图。
 
 Flutter新增访客输入校验与北京时间、必填/409保留表单、我的访客/访客码/取消组件测试；真实API测试复用本地HTTP结果会话完成预约、签到签离、通知及取消。未设置OA_VISITOR_FIXTURE时真实测试跳过；该结果文件含会话，仅存.runtime，不得提交或外传。静态检查遗留合同测试文件一条不影响运行的info（unnecessary_brace_in_string_interps），访客代码无告警。仅补跑受影响回归，复用之前已通过且未受改动影响的验收；无iOS打包、正式签名、IPA或APK。本期不启动cloudflared、watchdog、8088 nginx，不运行dev-down.sh，不部署到MacBook或生产环境。
+
+
+## 安卓 FCM 推送（V12）
+
+仅安卓 `com.company.oa_employee` 接入 Firebase Cloud Messaging HTTP v1（Firebase Admin SDK）。iOS/APNs、国内安卓厂商通道、网页管理后台及 `/staff/` 浏览器推送均未接入。公告仍走原公告表和回执，本期仅推送新写入 `notifications` 的系统通知。
+
+### 设备登记与注销
+
+复用现有 Bearer 登录、首次改密限制和 `login_sessions`，不新增会话体系。
+
+| 方法与路径 | JSON 输入 | 结果 |
+| --- | --- | --- |
+| `POST /push/tokens` | `{"token":"FCM注册token","platform":"ANDROID","deviceName":"员工手机"}` | `{"message":"推送设备已登记"}` |
+| `DELETE /push/tokens` | `{"token":"FCM注册token"}` | `{"message":"推送设备已注销"}` |
+
+- token 必填、仅非空白可打印 ASCII、最多2048字符；platform 必须为 `ANDROID`；deviceName 可省略或为 null，最多100字符。无登录401，格式无效400，中文错误；首次未改密403。
+- V12 新增 `push_tokens`，token 全表唯一。同一 token 再登记会换绑到当前用户/当前登录会话并刷新更新时间；用户可有多台设备。表的 `IOS` 枚举仅预留，接口不接受且不发送。
+- 显式注销仅删除当前用户所属 token，重复注销仍成功。`POST /auth/logout` 同时删除当前会话登记的 token。员工端退出先显式注销，再退出原会话；撤销、过期、改密失效会话和停用账号不会继续收到推送。token 明文不写入审计或日志。
+
+### 通知发送与回退
+
+审批（含抄送）、会议、任务、文档、资产、合同、访客全部通过 `NotificationService` 写入；原有文案、接收人和关联字段保持不变。访客的冲突忽略仅在 `RETURNING` 确实返回新行时触发。事务提交后放入有界异步线程池，向全部有效安卓 token 发送；无事务调用在写入成功后异步发送，事务回滚不发送。
+
+可见 title/body 均使用原通知文案；data 值均为字符串，包含 `notification_id`，以及存在的 `request_id`、`meeting_id`、`task_id`、`document_id`、`asset_request_id`、`contract_id`、`visitor_id`。Flutter 点击通知统一进入原消息中心，用户可从同一通知继续进入已有详情并执行原鉴权。前台收到时提示「收到新的系统通知，请查看消息中心」，可点「查看」。安卓13及以上申请通知权限，拒绝后不会反复弹窗，打卡和审批照常；授权后登录/恢复会话登记 token，刷新自动重登。
+
+服务端用环境变量 `FCM_CREDENTIALS`（或备用 `GOOGLE_APPLICATION_CREDENTIALS`）指定服务账号文件路径，默认空。文件仅放在运行机器安全目录，不要提交私钥、整份服务账号 JSON、测试夹具或日志；客户端 `mobile/android/app/google-services.json` 仅为公开客户端配置。配置后重启开发服务即可启用，Firebase 项目须已启用 FCM HTTP v1 并允许服务账号发送。
+
+缺少凭证、网络/权限错误、队列满或其他发送失败均不回滚主业务或已入库通知；不保证离线重试或投递成功。HTTP v1 `UNREGISTERED` 会删除失效 token；暂时失败保留 token。设备仍需可用的 Google Play services 与 FCM 网络连接。`GET /messages?category=notifications` 和 `GET /notifications` 始终是可靠后备，手动刷新仍可看到同一通知，推送不自动标记已读。
+
+### 本地测试
+
+`PushHttpTest` 使用真实随机端口 HTTP、PostgreSQL 和 Redis（逻辑库14），仅 mock FCM 发送器；不会读取服务账号或访问真实 Firebase。先启动本地开发数据库，创建专用 `oa_push_test`（可通过 `PUSH_TEST_DATABASE_URL` 覆盖），再运行所有 Maven 测试：
+
+```bash
+source scripts/env.sh
+PGPASSWORD="$DATABASE_PASSWORD" createdb -h 127.0.0.1 -p 55432 -U oa oa_push_test # 仅首次，使用本地开发库密码
+mvn -f backend/pom.xml -Dmaven.repo.local="$PWD/.tools/m2" test
+cd mobile
+/home/box/flutter/bin/flutter test
+/home/box/flutter/bin/flutter analyze --no-fatal-infos
+```
+
+Flutter `push_test.dart` 用假设备和 mock HTTP 验证权限拒绝、登记、刷新、退出竞态及前后台点击，不连接 Firebase。真实手机投递需要后续在已配置服务端凭证的开发环境，用授权安卓设备验收；本次无需重打 APK、部署或修改任何苹果配置。

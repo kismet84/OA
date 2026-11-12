@@ -20,3 +20,7 @@ data/redis/
 __pycache__/
 admin/test-results/
 admin/playwright-report/
+
+# Server credentials must never be committed
+**/fcm-service-account.json
+*service-account*.json

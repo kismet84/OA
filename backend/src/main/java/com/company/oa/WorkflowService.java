@@ -13,6 +13,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class WorkflowService {
+  @org.springframework.beans.factory.annotation.Autowired
+  NotificationService notifications;
   final JdbcTemplate db;
   final Auth auth;
   final Clock clock;
@@ -205,7 +207,7 @@ public class WorkflowService {
           chain.get(n));
     for (long recipient : cc) {
       db.update("INSERT INTO request_cc VALUES(?,?)", id, recipient);
-      db.update("INSERT INTO notifications(user_id,message,request_id) VALUES(?,?,?)", recipient, "审批单 #" + id + " 抄送给您", id);
+      notifications.write(recipient, "审批单 #" + id + " 抄送给您", "request_id", id);
     }
     notify(chain.getFirst(), "审批单 #" + id + " 待您处理");
     auth.audit(actor.id(), "SUBMIT_REQUEST", id);
@@ -334,7 +336,8 @@ public class WorkflowService {
           ((Number) nextSteps.getFirst().get("approver_id")).longValue(), "审批单 #" + id + " 待您处理");
     else notify(owner, "审批单 #" + id + (in.approve() ? " 已批准" : " 已驳回"));
     if (!status.equals("PENDING"))
-      db.update("INSERT INTO notifications(user_id,message,request_id) SELECT user_id,?,request_id FROM request_cc WHERE request_id=?", "抄送审批单 #" + id + (in.approve() ? " 已批准" : " 已驳回"), id);
+      for (long recipient : db.queryForList("SELECT user_id FROM request_cc WHERE request_id=?", Long.class, id))
+        notifications.write(recipient, "抄送审批单 #" + id + (in.approve() ? " 已批准" : " 已驳回"), "request_id", id);
     auth.audit(actor.id(), in.approve() ? "APPROVE_REQUEST" : "REJECT_REQUEST", id);
   }
 
@@ -419,6 +422,6 @@ public class WorkflowService {
   }
 
   void notify(long user, String message) {
-    db.update("INSERT INTO notifications(user_id,message) VALUES(?,?)", user, message);
+    notifications.write(user, message);
   }
 }

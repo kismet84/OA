@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "973695896112",
+    "project_id": "bzywc-oa",
+    "storage_bucket": "bzywc-oa.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:973695896112:android:cf03fbb922f2f13a547bf5",
+        "android_client_info": {
+          "package_name": "com.company.oa_employee"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDoPXm9h2zaAOrvp03M5oDMeaWW-MktCDA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

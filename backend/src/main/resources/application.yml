@@ -24,6 +24,7 @@ spring:
       max-file-size: 10MB
       max-request-size: 11MB
 oa:
+  fcm-credentials: ${FCM_CREDENTIALS:${GOOGLE_APPLICATION_CREDENTIALS:}}
   uploads: ${UPLOAD_DIR:./uploads}
   origins: ${CORS_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
   bootstrap-password: ${BOOTSTRAP_PASSWORD:}

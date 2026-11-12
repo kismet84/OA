@@ -56,7 +56,7 @@ cp build/app/outputs/flutter-apk/app-debug.apk ../.runtime/oa-employee-debug.apk
 
 - 本机没有连接 Android 真机/模拟器；已验证 Dart 界面状态、API/参数校验、真实服务登录/消息/通讯录和安卓构建。尚未实测系统定位弹窗、SSID、文件选择/打开、安全存储及移动端端到端操作，发放前需在 Android 和 iOS 真机联调。
 - SSID 取决于系统权限、平台限制和 iOS provisioning 能力，取不到时不伪造；服务端仍可按已登记出口 IP 判断公司网络。定位和 SSID 是客户端上报，一期不提供反作弊保证。
-- 已增加补卡、加班入口与提交、审批、详情和按规则撤回/撤销；打卡记录展示补卡来源，个人中心可刷新调休余额。补卡期限和加班比例读取后台配置。无离线提交、后台定位、真实推送、聊天、员工网页或支付登记。消息需打开页面或刷新查看；设备信息是客户端名称，不是可信硬件标识。
+- 已增加补卡、加班入口与提交、审批、详情和按规则撤回/撤销；打卡记录展示补卡来源，个人中心可刷新调休余额。补卡期限和加班比例读取后台配置。无离线提交、后台定位、聊天、员工网页或支付登记。消息需打开页面或刷新查看；设备信息是客户端名称，不是可信硬件标识。
 - 本地附件临时文件在应用沙盒中，外部查看器能否打开取决于设备；退出不会清理外部查看器保存的副本。
 
 二期不重打 APK，上述现有 debug 包为一期产物；验证本期修改请运行源码。二期真实接口测试可设 `OA_TEST_LOGIN`、`OA_TEST_PASSWORD`、`OA_TEST_MANAGER`（专用员工及其直属上级的工号，测试密码相同），执行 `flutter test`，未配置时只跳过真实服务用例，其余组件/校验测试照常运行。
@@ -66,3 +66,14 @@ cp build/app/outputs/flutter-apk/app-debug.apk ../.runtime/oa-employee-debug.apk
 工作台「文档资料」可分类浏览、按标题和上海发布日期筛选；打开当前可见文档，PDF逐页预览、图片直接预览。预览图片由服务端烧录查看人姓名、工号、上海日期；首次成功预览记已读。允许下载时保存并打开服务端水印PDF/PNG，禁止下载时隐藏入口，服务端同步拒绝导出。系统通知可进入对应文档，已下架或移出范围显示中文原因。
 
 员工不上传公司文档；发布由管理员后台完成，接收范围及下载许可实时按服务端判断。预览不取原件；水印PDF下载为栅格版，下载图片统一PNG。禁止下载不等于禁止截图或保存水印预览。`documents_test.dart` 覆盖筛选、两页预览、禁止下载、二进制403和通知失效提示；继续运行全部现有测试，无需重打APK，不制作正式签名或IPA。
+
+
+## 安卓 FCM（V12）
+
+仅 Android 接入 `firebase_core` / `firebase_messaging`，已配置 Google services 插件及公开客户端 `android/app/google-services.json`，包名 `com.company.oa_employee`。不初始化 iOS Firebase、不接入 APNs，不涉及苹果账号、签名或 IPA。
+
+首次登录且完成改密后申请通知权限（安卓13+），拒绝不会阻断其他功能，之后不反复弹窗；可在系统设置手动授权并重新登录。登录或恢复会话后向 `POST /push/tokens` 上报，token 刷新时重新登记并注销旧 token；退出先调用 `DELETE /push/tokens` 再退出会话。网络、Firebase 或权限故障均不阻断员工业务。前台推送给中文提示及「查看」入口，后台/冷启动点击进入消息中心，再从通知行进入已有详情。
+
+必须在服务端配置 `FCM_CREDENTIALS`（或 `GOOGLE_APPLICATION_CREDENTIALS`）才会真实发送。不要将服务账号、私钥放入移动工程；客户端 JSON 不含服务端密钥。设备需 Google Play services 及 FCM 网络连接，国内厂商通道未接入。公告维持原接口查询，系统通知在消息中心手动刷新可见，推送不替代站内记录。
+
+`flutter test` 包含 `push_test.dart` 假设备/HTTP 测试，不连接真实 Firebase；`flutter analyze --no-fatal-infos` 可保留既有测试提示。无需重打 APK，本次未进行真机 FCM 投递验收。

@@ -15,6 +15,8 @@ import org.springframework.core.io.*;
 @RestController
 @RequestMapping("/api/contracts")
 class ContractController {
+  @org.springframework.beans.factory.annotation.Autowired
+  NotificationService notifications;
   final JdbcTemplate db; final Auth auth; final Clock clock; final AttachmentController attachments;
   ContractController(JdbcTemplate db, Auth auth, Clock clock, AttachmentController attachments) {
     this.db=db; this.auth=auth; this.clock=clock; this.attachments=attachments;
@@ -45,7 +47,7 @@ class ContractController {
   void owner(Map<String,Object> r,Actor a){if(num(r,"user_id")!=a.id())throw new ApiException(403,"仅经办人可操作");}
   void state(boolean ok){if(!ok)throw new ApiException(409,"当前合同状态不允许此操作");}
   boolean editable(Map<String,Object> r){return Set.of("DRAFT","REJECTED","WITHDRAWN").contains(r.get("workflow_status"));}
-  void notice(long user,long id,String message){db.update("INSERT INTO notifications(user_id,message,contract_id) VALUES(?,?,?)",user,"合同 #"+id+"："+message,id);}
+  void notice(long user,long id,String message){notifications.write(user,"合同 #"+id+"："+message, "contract_id",id);}
   void audit(Actor a,String action,long id){auth.audit(a.id(),action,id);}
   void checkFile(UUID file, long user, Long contractId) {
     var uploaded=db.queryForList("SELECT id FROM attachments WHERE id=? AND user_id=? FOR UPDATE",file,user);

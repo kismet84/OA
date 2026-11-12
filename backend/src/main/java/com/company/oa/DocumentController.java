@@ -14,6 +14,8 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/documents")
 class DocumentController {
+  @org.springframework.beans.factory.annotation.Autowired
+  NotificationService notifications;
   final JdbcTemplate db;
   final Auth auth;
   final AttachmentController storage;
@@ -107,10 +109,8 @@ class DocumentController {
     String title = db.queryForObject("SELECT title FROM documents WHERE id=?", String.class, id);
     for (long user : users)
       if (user != a.id())
-        db.update(
-            "INSERT INTO notifications(user_id,message,document_id) VALUES(?,?,?)",
-            user,
-            "文档资料已发布：" + title,
+        notifications.write(user,
+            "文档资料已发布：" + title, "document_id",
             id);
   }
 
