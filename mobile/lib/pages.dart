@@ -10,6 +10,7 @@ import 'requests.dart';
 import 'calendar.dart';
 import 'tasks.dart';
 import 'assets.dart';
+import 'contracts.dart';
 import 'documents.dart';
 import 'workbench.dart';
 
@@ -128,6 +129,11 @@ class _HomeState extends State<HomePage> with Guard<HomePage> {
           ),
           section('常用功能'),
           for (final entry in <(String, IconData, Widget)>[
+            (
+              '合同管理',
+              Icons.description_outlined,
+              ContractsPage(api: widget.api),
+            ),
             ('资产领用', Icons.inventory_2_outlined, AssetsPage(api: widget.api)),
             (
               '文档资料',
@@ -366,7 +372,12 @@ class _MessageState extends State<MessagePage> with Guard<MessagePage> {
           );
         }
         if (!mounted) return;
-        if (row['asset_request_id'] != null) {
+        if (row['contract_id'] != null) {
+          await go(
+            context,
+            ContractDetailPage(api: widget.api, id: row['contract_id'] as int),
+          );
+        } else if (row['asset_request_id'] != null) {
           await go(
             context,
             AssetDetailPage(
@@ -422,6 +433,11 @@ class _MessageState extends State<MessagePage> with Guard<MessagePage> {
           );
         }
       });
+    } else if (row['item_type'] == 'CONTRACT') {
+      await go(
+        context,
+        ContractDetailPage(api: widget.api, id: row['id'] as int),
+      );
     } else if (row['item_type'] == 'ASSET') {
       await go(context, AssetDetailPage(api: widget.api, id: row['id'] as int));
     } else if (row['item_type'] == 'TASK') {
@@ -509,7 +525,9 @@ class _MessageState extends State<MessagePage> with Guard<MessagePage> {
                         color: const Color(0xff176b64),
                       ),
                       title: Text(
-                        '${r['item_type'] == 'ASSET'
+                        '${r['item_type'] == 'CONTRACT'
+                            ? '合同 · '
+                            : r['item_type'] == 'ASSET'
                             ? '资产领用 · '
                             : r['item_type'] == 'TASK'
                             ? '任务 · '

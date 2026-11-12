@@ -7,6 +7,8 @@ import StaffRequest from './StaffRequest.vue';
 import Calendar from './Calendar.vue';
 import Tasks from './Tasks.vue';
 import Assets from './Assets.vue';
+import Contracts from './Contracts.vue';
+const contractId=ref<number|null>(null);
 const assetRequestId=ref<number|null>(null);
 import Documents from './Documents.vue';
 import Workbench from './Workbench.vue';
@@ -15,7 +17,7 @@ const taskId = ref<number|null>(null);
 const me = ref<Actor | null>(null), ready = ref(false), busy = ref(false), error = ref(''), message = ref('');
 const page = ref('apply'), passwordOpen = ref(false), detailId = ref<number | null>(null), revision = ref(0);
 const meetingId = ref<number | null>(null);
-const nav = [['assets','资产领用'],['documents','文档资料'],['tasks','待办任务'],['calendar','日程与会议'],['apply','提交申请'],['messages','消息中心'],['directory','通讯录'],['punches','打卡记录'],['profile','个人中心']];
+const nav = [['contracts','合同管理'],['assets','资产领用'],['documents','文档资料'],['tasks','待办任务'],['calendar','日程与会议'],['apply','提交申请'],['messages','消息中心'],['directory','通讯录'],['punches','打卡记录'],['profile','个人中心']];
 const title = computed(() => nav.find(n => n[0] === page.value)?.[1]);
 const login = reactive({ login: '', password: '', deviceName: '员工办公浏览器', platform: 'Web' });
 const password = reactive({ oldPassword: '', newPassword: '' });
@@ -56,6 +58,7 @@ async function load() {
   }
 }
 async function navigate(key: string) {
+  if (key === 'contracts') contractId.value=null;
   if (key === 'assets') assetRequestId.value = null;
   await run(async () => { page.value = key; rows.value = []; offset.value = 0; await load(); });
 }
@@ -93,10 +96,11 @@ onUnmounted(() => window.removeEventListener('oa-session-expired', expired));
       <Workbench v-if="page==='apply'" />
       <StaffRequest v-if="page==='apply'" :key="revision" :me="me" @submitted="id=>{detailId=id;message='申请已提交'}" />
       <Documents v-if="page==='documents'" :document-id="documentId" />
+      <Contracts v-if="page==='contracts'" :me="me" :contract-id="contractId" />
       <Assets v-if="page==='assets'" :me="me" :request-id="assetRequestId" />
       <Tasks v-if="page==='tasks'" :me="me" :task-id="taskId" />
       <Calendar v-if="page==='calendar'" :me="me" :meeting-id="meetingId" />
-      <MessageCenter @open-asset="id=>{assetRequestId=id;page='assets'}" @open-document="id=>{documentId=id;page='documents'}" @open-task="id=>{taskId=id;page='tasks'}" @open-meeting="id=>{meetingId=id;page='calendar'}" v-if="page==='messages'" :refresh-key="revision" :departments="[]" @open-request="row=>detailId=row.id" />
+      <MessageCenter @open-contract="id=>{contractId=id;page='contracts'}" @open-asset="id=>{assetRequestId=id;page='assets'}" @open-document="id=>{documentId=id;page='documents'}" @open-task="id=>{taskId=id;page='tasks'}" @open-meeting="id=>{meetingId=id;page='calendar'}" v-if="page==='messages'" :refresh-key="revision" :departments="[]" @open-request="row=>detailId=row.id" />
       <section v-if="page==='directory' || page==='punches'" class="card">
         <p v-if="page==='punches'" class="success">网页仅供查看打卡记录。现场打卡需要手机定位与网络校验，请使用手机 App。</p>
         <form class="filters" @submit.prevent="run(async()=>{offset=0;await load()})">

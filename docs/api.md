@@ -439,3 +439,72 @@ Flyway `V8__company_documents.sql` 新增公司文档、当前附件绑定、历
 本地验收：`source scripts/env.sh && python3 scripts/verify-phase3-assets.py`；浏览器 `npm --prefix admin run test:e2e -- assets.spec.ts` 覆盖后台登记、员工网页申请、上级混合待办审批、行政发放、员工归还及确认、消耗品扣减与移动网页。另跑Maven全部测试、前端构建、既有HTTP和浏览器回归，以及 `cd mobile && flutter analyze && flutter test`（资产组件测试含默认归还、表单冲突、归还登记、混合待办审批返回）。测试仅创建本地独立业务数据，不提交上传文件、构建产物或数据库。
 
 Flutter真实接口验收复用上述HTTP脚本创建的独立账号：从 `.runtime/assets-http-result.json` 读取 `prefix`，在 `mobile/` 下设置 `OA_ASSET_PREFIX=<prefix>` 后运行 `flutter test test/assets_live_test.dart`，覆盖员工申请、直属审批、行政发放、员工归还、行政收回、消耗品扣减及撤回。未设置该变量时此项跳过，常规组件测试仍执行。
+
+## 三期：合同管理（V10）
+
+所有路径以 `/api` 为前缀，必须登录。未登录401、越权403、参数无效400、编号重复/状态冲突409、不存在404；错误为中文。V10仅增量添加合同、审批步骤、附件关联、提醒去重表、通知contract_id及workflow_config.contract_threshold，兼容PostgreSQL 15，不改写V1–V9。
+
+### 台账和查询
+
+| 接口 | 参数与行为 |
+| --- | --- |
+| `POST /contracts` | 登记草稿，返回`{id}`；请求字段见下文 |
+| `PUT /contracts/{id}` | 经办人修改草稿/已驳回/已撤回，返回`{id}`；审批中及通过后不能修改，409 |
+| `DELETE /contracts/{id}` | 仅经办人删除草稿；其余状态409 |
+| `GET /contracts` | `scope=visible`（默认）/mine/pending，可选status、type、departmentId、counterparty、expiryFrom、expiryTo、offset（默认0）、limit（默认200，1–200） |
+| `GET /contracts/{id}` | 授权详情，包含files、steps、workflow_status及isOwner/canApprove/canArchive |
+| `GET /contracts/summary` | `{expiring30}`：可见范围内待归档/履行中、到期日在上海今天至今天+30日（含首尾）的数量 |
+| `GET /contracts/export` | 仅ADMIN/FINANCE，支持与列表相同的状态、类型、部门、对方及到期区间筛选；导出所有符合条件记录，无分页截断；UTF-8 BOM CSV、中文表头和状态，防公式注入，写EXPORT_CONTRACTS审计 |
+
+登记/修改示例：
+
+```json
+{
+  "code":"", "name":"年度服务合同", "type":"SERVICE",
+  "counterparty":"对方公司", "contact":"联系人", "phone":"13800000000",
+  "amount":50000, "signedDate":"2026-11-12", "effectiveDate":"2026-12-01",
+  "expiryDate":"2027-11-30", "performance":"按月履约", "note":"备注",
+  "attachmentIds":[]
+}
+```
+
+name、type、counterparty、signedDate、effectiveDate必填。code最多100字，留空生成`HT-上海年份-六位递增序号`（数据库全局序列、不按年重置），手填去首尾空格、公司内唯一；name/counterparty最多200字，contact100、phone50、performance/note5000字；附件最多30份。amount非负、至多12位整数和2位小数，可为null或0表示无固定金额；expiryDate可null表示长期，否则不得早于生效日。userId默认本人，仅ADMIN可在创建时指定其他有效经办人；修改不可换人。所属部门按创建时经办人主部门记录。
+
+类型：PURCHASE采购、SALES销售、SERVICE服务、LEASE租赁、LABOR劳务、OTHER其他。
+状态：DRAFT草稿、PENDING审批中、REJECTED已驳回、WITHDRAWN已撤回、TO_ARCHIVE待归档、ACTIVE履行中、EXPIRED已到期、TERMINATED已终止。列表/详情/导出实时按Asia/Shanghai日期计算：expiry_date早于今天且未终止即显示EXPIRED；workflow_status保留实际流程状态，操作按该字段判断，故历史到期草稿仍可修改、历史待归档仍可归档。当日到期尚不显示已到期。
+
+查询权限：本人经办；直属上级看manager_id指向本人的直接下属；DEPT_HEAD看head_id为本人的部门及递归下级；ADMIN/FINANCE全部。列表先施加权限再筛选/分页，仅返回数组、不返回越权总数；直接读取他人合同403，任意筛选不能扩大权限。departmentId为精确部门筛选。pending为当前轮到本人处理的合同，mine为本人经办；消息中心“我发起的”继续保持原口径，我的合同在合同页查询。
+
+### 审批与归档
+
+| 接口 | 参数与行为 |
+| --- | --- |
+| `POST /contracts/{id}/submit` | 经办人提交DRAFT/REJECTED/WITHDRAWN，无请求体，保存新revision审批链 |
+| `POST /contracts/{id}/approve` | 当前审批人`{approved:true,note:""}`通过；`approved:false`驳回，note必填，最多1000字；不轮到本人403 |
+| `POST /contracts/{id}/withdraw` | 经办人终审前PENDING可撤回；已终审409 |
+| `POST /contracts/{id}/archive` | 经办人或ADMIN在TO_ARCHIVE，`{attachmentIds:["上传UUID"]}`，1–30份本人上传盖章版，进入ACTIVE |
+| `POST /contracts/{id}/terminate` | 经办人或ADMIN，`{reason:"终止原因"}`，必填≤1000字；草稿/已终止409，保留记录与原因 |
+
+审批链固定为：直属上级（未配置则跳过）→ 金额**超过**contract_threshold时追加部门负责人（与上级同人跳过重复）→ FINANCE或ADMIN任一人终审。阈值默认50000元，空金额/0/等于阈值不追加负责人；复用`GET/PUT /admin/workflow`，返回contract_threshold，保存字段contractThreshold，非负至多两位小数；旧客户端不传保留原值。提交后链已快照，改阈值不改已提交审批链；驳回/撤回重提建立新revision，保留旧审批记录。缺有效负责人/终审人或自批配置返回中文400；申请人不得审批自己的合同。终审通过进入TO_ARCHIVE，必须上传盖章版并归档后ACTIVE。事务和合同行锁串行处理重复审批/撤回/归档，编号并发重复由唯一约束返回409。
+
+### 附件、提醒和消息
+
+附件先复用`POST /attachments`上传（PDF/PNG/JPEG，每份≤10MB），登记时attachmentIds关联本人上传附件，修改可保留该合同现有附件。文档原件/公告/审批/资产已用附件不可重新归为合同，合同附件也不可关联成文档绕过权限。
+
+`GET /contracts/{id}/files/{uuid}?preview=true`按合同可见权限内联预览；省略preview或false下载并写DOWNLOAD_CONTRACT_FILE审计；预览写PREVIEW_CONTRACT_FILE审计。仅能访问本合同已关联附件，带no-store与nosniff；合同扫描件按权限返回原文件，不使用文档资料的个性化水印重绘。通用`GET /attachments/{uuid}`对合同附件一律403，须走合同接口。
+
+每天上海08:00运行提醒，并在登录用户读取`GET /messages/summary`时补发。只处理TO_ARCHIVE/ACTIVE，expiry_date落在今天至今天+30或今天+7日（含首尾），按合同与节点唯一约束各发一次；服务停机跨过精确节点后，只要仍未到期即可补发，7天内首次补发可同时收到两条。已到期/终止不发，长期不发；同一合同修改到期日后不重置已发送节点。使用原notifications，contract_id关联，经办人收取，不接真实推送。
+
+提交、分级通过、驳回、撤回、归档、终止及到期提醒向经办人写系统通知；提交/中间通过还通知下一审批人，终审组通知启用的ADMIN/FINANCE（排除申请人）。消息待办`GET /messages?category=pending`合并合同，`item_type=CONTRACT`、title为合同名称；三端显示「合同」并进入详情审批。`GET /messages/summary.pending`在原六类审批、任务及资产之上按合同加一，不增加消息大类。工作台统计仍仅取原requests六类，合同不参与审批时效。登记、删除、提交、审批、撤回、归档、终止、附件读取和导出均复用audit_logs。
+
+### 本地验收
+
+```bash
+source scripts/env.sh
+python3 scripts/verify-phase3-contracts.py
+npm --prefix admin run test:e2e -- contracts.spec.ts
+```
+
+HTTP覆盖未登录401、越权403及列表隔离、编号409、分页、导出BOM与权限、50000边界、超阈值、同人去重、审批中锁定、驳回/撤回修改重提、归档、附件权限/跨业务隔离、到期与提醒两节点各一次、审计、原待办合并及六类工作台不变。浏览器覆盖员工移动网页起草提交、上级待办驳回、修改重提、上级/负责人/财务审批、盖章归档、管理员筛选导出和原待办数字保留。
+
+Flutter常规`flutter analyze && flutter test`覆盖中文合同表单、必填/冲突保留数据、长期及无固定金额、详情归档和合同待办导航。真实接口验收先运行上述HTTP脚本，从`.runtime/contracts-http-result.json`读取prefix，在mobile目录设置`OA_CONTRACT_PREFIX=<prefix>`后执行`flutter test test/contracts_live_test.dart`，使用独立测试账号完成登记、驳回重提、三级审批、附件归档下载与终止；未设置变量时跳过该真实接口用例。另保留Maven全量、Vue构建、既有HTTP与浏览器回归通过记录，未受后续改动影响的不重复运行。不生成APK、iOS签名或IPA，不启动cloudflared/watchdog/8088 nginx。

@@ -70,6 +70,8 @@ class AttachmentController {
     if (rows.isEmpty()) throw new ApiException(404, "附件不存在");
     var file = rows.getFirst();
     Actor a = Auth.actor(req);
+    if(db.queryForObject("SELECT count(*) FROM contract_files WHERE attachment_id=?",Long.class,id)>0)
+      throw new ApiException(403,"合同附件请从合同详情按权限预览或下载");
     if (!a.admin() && db.queryForObject("SELECT count(*) FROM document_file_history WHERE attachment_id=?", Long.class, id) > 0)
       throw new ApiException(403, "公司文档请通过文档资料预览或下载水印件");
     if (!a.admin()

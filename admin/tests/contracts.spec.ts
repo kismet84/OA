@@ -1,0 +1,31 @@
+import {test,expect,type Page} from '@playwright/test';
+test('合同员工起草、驳回重提、超阈值三级审批、归档及管理筛选导出',async({page,request,browser})=>{
+ test.setTimeout(150000);
+ const errors:string[]=[];
+ const watch=(p:Page)=>{p.on('pageerror',e=>errors.push(e.message));p.on('console',m=>{if(m.type()==='error')errors.push(m.text())})};watch(page);
+ const call=async(path:string,method='GET',data?:any,token?:string)=>{const r=await request.fetch('/api'+path,{method,data,headers:token?{Authorization:'Bearer '+token}:{}});expect(r.status(),await r.text()).toBe(200);return r.json()};
+ const at=(await call('/auth/login','POST',{login:'admin',password:process.env.OA_ADMIN_PASSWORD||'Admin@2026Verified'})).token;
+ const stamp='contractweb'+Date.now();
+ const dep=(await call('/admin/departments','POST',{name:stamp},at)).id;
+ const make=async(suffix:string,roles:string[],managerId?:number)=>{const login=stamp+suffix;const id=(await call('/admin/users','POST',{employeeNo:login,name:login,departmentId:dep,enabled:true,managerId,roles,password:'Asset@2026Initial'},at)).id;const first=await call('/auth/login','POST',{login,password:'Asset@2026Initial'});await call('/auth/password','POST',{oldPassword:'Asset@2026Initial',newPassword:'Asset@2026Changed'},first.token);return {id,login,...await call('/auth/login','POST',{login,password:'Asset@2026Changed'})}};
+ const manager=await make('manager',['EMPLOYEE','SUPERVISOR']);const head=await make('head',['EMPLOYEE','DEPT_HEAD']);const owner=await make('owner',['EMPLOYEE'],manager.id);const finance=await make('finance',['EMPLOYEE','FINANCE']);
+ await call('/admin/departments/'+dep,'PUT',{name:stamp,headId:head.id},at);
+ const login=async(p:Page,login:string,admin=false)=>{await p.goto(admin?'/':'/staff/');await p.getByLabel('工号 / 手机号').fill(login);await p.getByLabel('密码',{exact:true}).fill(admin?(process.env.OA_ADMIN_PASSWORD||'Admin@2026Verified'):'Asset@2026Changed');await p.getByRole('button',{name:admin?'登录管理后台':'登录员工办公',exact:true}).click();await expect(p.locator('nav')).toBeVisible()};
+ const nav=async(p:Page,name:string)=>p.locator('nav').getByRole('button',{name:new RegExp(name+'$')}).click();
+ const btn=(p:Page,name:string)=>p.getByRole('button',{name,exact:true});const dialog=(p:Page)=>p.getByRole('dialog');
+ const close=async(p:Page)=>btn(p,'关闭合同窗口').click();
+ const ctx=await browser.newContext({viewport:{width:390,height:844}});const employee=await ctx.newPage();watch(employee);await login(employee,owner.login);await nav(employee,'合同管理');
+ await btn(employee,'登记合同').click();await dialog(employee).getByLabel('合同名称',{exact:true}).fill(stamp);await dialog(employee).getByLabel('对方单位',{exact:true}).fill(stamp);await dialog(employee).getByLabel('金额（元，无固定金额可留空）').fill('60000');await dialog(employee).getByLabel('签订日期',{exact:true}).fill('2032-01-01');await dialog(employee).getByLabel('生效日期',{exact:true}).fill('2032-01-01');await btn(employee,'保存草稿').click();await expect(dialog(employee)).toContainText('草稿');await btn(employee,'提交合同审批').click();await expect(dialog(employee)).toContainText('审批中');await close(employee);
+ const id=(await call('/contracts?scope=mine','GET',undefined,owner.token))[0].id;
+ await call('/requests','POST',{kind:'OUTING',startAt:'2032-03-01T09:00:00',endAt:'2032-03-01T18:00:00',reason:'保留审批'},owner.token);await call('/tasks','POST',{title:'保留原任务'+stamp,assigneeIds:[manager.id]},owner.token);
+ await login(page,manager.login);await nav(page,'消息中心');await expect(page.getByText('待办 3 ·',{exact:false})).toBeVisible();await expect(page.getByRole('row').filter({hasText:'保留原任务'})).toBeVisible();
+ await page.getByRole('row').filter({hasText:stamp}).filter({has:btn(page,'处理合同')}).getByRole('button',{name:'处理合同'}).click();await dialog(page).getByLabel('处理说明（驳回或终止必填）').fill('请补充履约说明');await btn(page,'驳回合同').click();await expect(dialog(page)).toContainText('已驳回');await close(page);
+ await btn(employee,'刷新合同').click();await employee.getByRole('row').filter({hasText:stamp}).getByRole('button',{name:'查看合同'}).click();await btn(employee,'修改合同').click();await dialog(employee).getByLabel('付款或履约说明').fill('按月提供服务');await btn(employee,'保存并提交合同').click();await expect(dialog(employee)).toContainText('审批中');await close(employee);
+ await nav(page,'消息中心');await page.getByRole('row').filter({has:btn(page,'处理合同')}).getByRole('button',{name:'处理合同'}).click();await btn(page,'同意合同').click();await expect(dialog(page)).toContainText('通过');
+ await close(page);await nav(page,'消息中心');await expect(page.getByText('待办 2 ·',{exact:false})).toBeVisible();
+ for(const person of [head,finance]){await page.evaluate(()=>sessionStorage.clear());await login(page,person.login);await nav(page,'消息中心');await page.getByRole('row').filter({has:btn(page,'处理合同')}).getByRole('button',{name:'处理合同'}).click();await btn(page,'同意合同').click();await expect(dialog(page)).toContainText(person===finance?'待归档':'审批中');await close(page)}
+ await btn(employee,'刷新合同').click();await employee.getByRole('row').filter({hasText:stamp}).getByRole('button',{name:'查看合同'}).click();await dialog(employee).getByLabel('上传盖章版（多份，每份≤10MB）').setInputFiles({name:'sealed.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.4\ncontract scan')});await expect(btn(employee,'归档合同')).toBeEnabled();await btn(employee,'归档合同').click();await expect(dialog(employee)).toContainText('履行中');await expect(dialog(employee)).toContainText('盖章版');await close(employee);
+ await employee.screenshot({path:'/tmp/oa-contracts-staff.png',fullPage:true});expect(await employee.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();
+ await page.evaluate(()=>sessionStorage.clear());await login(page,'admin',true);await nav(page,'合同管理');await page.getByLabel('对方单位关键字').fill(stamp);await page.getByLabel('合同状态').selectOption('ACTIVE');await btn(page,'查询合同').click();await expect(page.locator('tbody tr')).toHaveCount(1);const download=page.waitForEvent('download');await btn(page,'导出合同 CSV').click();await (await download).saveAs('/tmp/oa-contracts.csv');await page.screenshot({path:'/tmp/oa-contracts-admin.png',fullPage:true});
+ expect((await call('/contracts/'+id,'GET',undefined,at)).status).toBe('ACTIVE');await expect(page.locator('vite-error-overlay')).toHaveCount(0);expect(errors).toEqual([]);await ctx.close();
+});

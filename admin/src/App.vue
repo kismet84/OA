@@ -6,6 +6,8 @@ import MessageCenter from './MessageCenter.vue';
 import Calendar from './Calendar.vue';
 import Tasks from './Tasks.vue';
 import Assets from './Assets.vue';
+import Contracts from './Contracts.vue';
+const contractId=ref<number|null>(null);
 const assetRequestId=ref<number|null>(null);
 import Documents from './Documents.vue';
 import Workbench from './Workbench.vue';
@@ -68,6 +70,7 @@ const workflow = reactive({
   leaveThreshold: 1,
   travelThreshold: 1,
   expenseThreshold: 1000,
+  contractThreshold:50000,
   financeId: null as number | null,
 });
 const application = reactive({
@@ -118,7 +121,7 @@ const roleOptions = ['EMPLOYEE', 'SUPERVISOR', 'DEPT_HEAD', 'ADMIN', 'FINANCE'];
 const nav = computed(() => isAdmin.value ? [
   { key: 'overview', title: '工作台', icon: '概' },
   { key: 'documents', title: '文档资料', icon: '文' },
-  { key: 'assets', title: '资产领用', icon: '资' },
+  {key:'contracts',title:'合同管理',icon:'合'}, { key: 'assets', title: '资产领用', icon: '资' },
   { key: 'tasks', title: '待办任务', icon: '任' },
   { key: 'calendar', title: '日程与会议', icon: '会' },
   { key: 'departments', title: '部门组织', icon: '组' },
@@ -134,7 +137,7 @@ const nav = computed(() => isAdmin.value ? [
   { key: 'messages', title: '消息中心', icon: '信' },
   { key: 'announcements', title: '公告管理', icon: '告' },
   { key: 'audit', title: '操作审计', icon: '志' },
-] : [{ key: 'assets', title: '资产领用', icon: '资' }, { key: 'requests', title: '审批单据', icon: '审' }, { key: 'messages', title: '消息中心', icon: '信' }]);
+] : [{key:'contracts',title:'合同管理',icon:'合'}, { key: 'assets', title: '资产领用', icon: '资' }, { key: 'requests', title: '审批单据', icon: '审' }, { key: 'messages', title: '消息中心', icon: '信' }]);
 const pageTitle = computed(() => nav.value.find((n) => n.key === page.value)?.title || '管理后台');
 const enabledUsers = computed(() => users.value.filter((u) => u.enabled));
 const nameOf = (id: number | null) => users.value.find((u) => u.id === id)?.name || '未指定';
@@ -295,7 +298,7 @@ function query(exporting = false) {
   return '?' + p;
 }
 async function load() {
-  if (['assets','calendar','tasks','documents'].includes(page.value)) return;
+  if (['contracts','assets','calendar','tasks','documents'].includes(page.value)) return;
   loading.value = true;
   try {
     if (page.value === 'workflow') {
@@ -306,6 +309,7 @@ async function load() {
         leaveThreshold: w.leave_threshold,
         travelThreshold: w.travel_threshold,
         expenseThreshold: w.expense_threshold,
+        contractThreshold:w.contract_threshold,
         financeId: w.finance_id,
       });
     } else if (['overview', 'simulator', 'messages', 'announcements'].includes(page.value)) rows.value = [];
@@ -318,6 +322,7 @@ async function load() {
   }
 }
 async function navigate(key: string) {
+  if (key === 'contracts') contractId.value=null;
   if (key === 'assets') assetRequestId.value = null;
   page.value = key;
   offset.value = 0;
@@ -725,6 +730,7 @@ onMounted(async () => {
               </option>
             </select></label
           ><label>补卡期限（补卡日期结束后自然日数）<input v-model.number="workflow.correctionDays" type="number" min="0" max="365" step="1" required /></label>
+          <label>合同部门负责人审批阈值（元，超过时加签）<input v-model.number="workflow.contractThreshold" type="number" min="0" step="0.01" required /></label>
           <label>加班兑换调休比例<input v-model.number="workflow.overtimeRatio" type="number" min="0.01" max="100" step="0.01" required /></label>
           <p class="muted">加班沿用请假分流阈值，按半天计天数；兑换比例在提交时保存。补卡只审批一次，已批准不可撤销。已使用的加班额度须先恢复余额才能撤销。</p>
           <button class="primary" :disabled="busy">保存分流配置</button>
@@ -783,10 +789,11 @@ onMounted(async () => {
         </form>
       </section>
       <Documents v-else-if="page==='documents'" :management="isAdmin" :departments="departments" :document-id="documentId" />
+      <Contracts v-else-if="page==='contracts' && me" :me="me" :contract-id="contractId" />
       <Assets v-else-if="page==='assets' && me" :me="me" :management="me.roles.split(',').some(r=>['ADMIN','FINANCE'].includes(r))" :request-id="assetRequestId" />
       <Tasks v-else-if="page==='tasks' && me" :me="me" :management="isAdmin" :task-id="taskId" />
       <Calendar v-else-if="page==='calendar' && me" :me="me" :management="isAdmin" :meeting-id="meetingId" />
-      <MessageCenter @open-asset="id=>{assetRequestId=id;page='assets'}" @open-document="id=>{documentId=id;page='documents'}" @open-task="id=>{taskId=id;page='tasks'}" @open-meeting="id=>{meetingId=id;page='calendar'}" v-else-if="['messages','announcements'].includes(page)" :key="page" :management="page==='announcements'" :departments="departments" @open-request="showDetail" />
+      <MessageCenter @open-contract="id=>{contractId=id;page='contracts'}" @open-asset="id=>{assetRequestId=id;page='assets'}" @open-document="id=>{documentId=id;page='documents'}" @open-task="id=>{taskId=id;page='tasks'}" @open-meeting="id=>{meetingId=id;page='calendar'}" v-else-if="['messages','announcements'].includes(page)" :key="page" :management="page==='announcements'" :departments="departments" @open-request="showDetail" />
       <section v-else class="card records">
         <div class="section-toolbar">
           <div>

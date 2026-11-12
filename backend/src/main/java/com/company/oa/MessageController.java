@@ -11,11 +11,13 @@ class MessageController {
   final JdbcTemplate db;
   final RequestController requests;
   final AssetController assets;
+  final ContractController contracts;
 
-  MessageController(JdbcTemplate db, RequestController requests, AssetController assets) {
+  MessageController(JdbcTemplate db, RequestController requests, AssetController assets, ContractController contracts) {
     this.db = db;
     this.requests = requests;
     this.assets = assets;
+    this.contracts=contracts;
   }
 
   @GetMapping("/colleagues")
@@ -28,6 +30,7 @@ class MessageController {
 
   @GetMapping("/messages/summary")
   Object summary(HttpServletRequest req) {
+    contracts.reminders();
     long id = Auth.actor(req).id();
     return Map.of(
         "pending",
@@ -41,7 +44,7 @@ class MessageController {
                         + " a.user_id=? AND t.status IN ('TODO','IN_PROGRESS')",
                     Long.class,
                     id)
-                + assets.pending(Auth.actor(req)),
+                + assets.pending(Auth.actor(req)) + contracts.pending(Auth.actor(req)),
         "notifications",
             db.queryForObject(
                 "SELECT count(*) FROM notifications WHERE user_id=? AND read_at IS NULL",
@@ -94,6 +97,8 @@ class MessageController {
                   + " data,r.created_at,r.id FROM asset_requests r JOIN users u ON u.id=r.user_id"
                   + " WHERE "
                   + assets.pendingSql()
+                  + " UNION ALL SELECT to_jsonb(c)||jsonb_build_object('item_type','CONTRACT','title',c.name,'user_name',u.name) data,c.created_at,c.id FROM contracts c JOIN users u ON u.id=c.user_id WHERE "
+                  + contracts.pendingSql(a)
                   + ") combined ORDER BY created_at DESC,id"
                   + " DESC,data->>'item_type' LIMIT 200 OFFSET ?",
               String.class,

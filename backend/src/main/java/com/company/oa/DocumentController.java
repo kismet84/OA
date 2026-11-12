@@ -83,13 +83,14 @@ class DocumentController {
                   "SELECT (SELECT count(*) FROM announcement_attachments WHERE"
                       + " attachment_id=?)+(SELECT count(*) FROM requests WHERE"
                       + " attachment_id=?)+(SELECT count(*) FROM expense_attachments WHERE"
-                      + " attachment_id=?)",
+                      + " attachment_id=?)+(SELECT count(*) FROM contract_files WHERE attachment_id=?)",
                   Long.class,
+                  file,
                   file,
                   file,
                   file)
               == 0,
-          "该附件已用于公告或审批，请为文档重新上传");
+          "该附件已用于公告、审批或合同，请为文档重新上传");
       media.pages(storage.path(file), (String) rows.getFirst().get("media_type"));
     }
   }

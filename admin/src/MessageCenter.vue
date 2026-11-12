@@ -3,7 +3,7 @@ import { onMounted, ref, watch } from 'vue';
 import { api, download, display, type Row } from './api';
 import DataTable from './DataTable.vue';
 const props = defineProps<{ management?: boolean; departments: Row[]; refreshKey?: number }>();
-const emit = defineEmits<{ openAsset: [id:number]; openRequest: [row: Row]; openMeeting: [id:number]; openTask: [id:number]; openDocument: [id:number] }>();
+const emit = defineEmits<{ openContract: [id:number]; openAsset: [id:number]; openRequest: [row: Row]; openMeeting: [id:number]; openTask: [id:number]; openDocument: [id:number] }>();
 const categories = [ ['pending','待我审批'], ['initiated','我发起的'], ['cc','抄送我的'], ['notifications','系统通知（站内通知）'], ['announcements','公告'] ];
 const category = ref('pending'), rows = ref<Row[]>([]), summary = ref<Row>({}), offset = ref(0);
 const busy = ref(false), error = ref(''), editing = ref(false), detail = ref<Row | null>(null), receipts = ref<Row | null>(null);
@@ -74,13 +74,14 @@ watch(() => props.refreshKey, () => run(load));
         </template>
         <template v-else-if="category==='notifications'">
           <button v-if="!row.read_at" @click="run(async()=>{await api('/notifications/'+row.id+'/read','POST');await load()})">标为已读</button>
+          <button v-if="row.contract_id" @click="emit('openContract',row.contract_id)">查看合同</button>
           <button v-if="row.asset_request_id" @click="emit('openAsset',row.asset_request_id)">查看资产领用</button>
           <button v-if="row.document_id" @click="emit('openDocument',row.document_id)">查看文档</button>
           <button v-if="row.task_id" @click="emit('openTask',row.task_id)">查看任务</button>
           <button v-if="row.meeting_id" @click="emit('openMeeting',row.meeting_id)">查看会议</button>
           <button v-if="row.request_id" @click="emit('openRequest',{id:row.request_id})">查看单据</button>
         </template>
-        <button v-else-if="row.item_type==='ASSET'" @click="emit('openAsset',row.id)">处理资产领用</button><button v-else-if="row.item_type==='TASK'" @click="emit('openTask',row.task_id)">查看任务</button><button v-else @click="emit('openRequest',row)">查看单据</button>
+        <button v-else-if="row.item_type==='CONTRACT'" @click="emit('openContract',row.id)">处理合同</button><button v-else-if="row.item_type==='ASSET'" @click="emit('openAsset',row.id)">处理资产领用</button><button v-else-if="row.item_type==='TASK'" @click="emit('openTask',row.task_id)">查看任务</button><button v-else @click="emit('openRequest',row)">查看单据</button>
       </template>
     </DataTable>
     <div class="pagination"><span>第 {{ offset/200+1 }} 页 · 每页最多 200 条</span><button :disabled="busy || offset===0" @click="run(async()=>{offset-=200;await load()})">上一页</button><button :disabled="busy || rows.length<200" @click="run(async()=>{offset+=200;await load()})">下一页</button></div>

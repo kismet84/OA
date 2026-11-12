@@ -435,7 +435,8 @@ class AdminController {
       @NotNull @DecimalMin("0") BigDecimal expenseThreshold,
       Long financeId,
       @Min(0) @Max(365) Integer correctionDays,
-      @DecimalMin("0.01") @DecimalMax("100") @Digits(integer=3, fraction=2) BigDecimal overtimeRatio) {}
+      @DecimalMin("0.01") @DecimalMax("100") @Digits(integer=3, fraction=2) BigDecimal overtimeRatio,
+      @DecimalMin("0") @Digits(integer=12,fraction=2) BigDecimal contractThreshold) {}
 
   @GetMapping("/workflow")
   Object workflow() {
@@ -451,11 +452,11 @@ class AdminController {
     half(in.travelThreshold());
     db.update(
         "UPDATE workflow_config SET"
-            + " leave_threshold=?,travel_threshold=?,expense_threshold=?,finance_id=?,correction_days=coalesce(?,correction_days),overtime_ratio=coalesce(?,overtime_ratio) WHERE id=1",
+            + " leave_threshold=?,travel_threshold=?,expense_threshold=?,finance_id=?,correction_days=coalesce(?,correction_days),overtime_ratio=coalesce(?,overtime_ratio),contract_threshold=coalesce(?,contract_threshold) WHERE id=1",
         in.leaveThreshold(),
         in.travelThreshold(),
         in.expenseThreshold(),
-        in.financeId(), in.correctionDays(), in.overtimeRatio());
+        in.financeId(), in.correctionDays(), in.overtimeRatio(), in.contractThreshold());
     auth.audit(Auth.actor(req).id(), "SAVE_WORKFLOW", in.toString());
     return Map.of("message", "审批分流已保存");
   }

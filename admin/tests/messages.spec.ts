@@ -14,9 +14,15 @@ test('公告部门发布、多附件、回执与撤回；员工消息中心和�
     const id=(await created.json()).id;
     const auth=await (await request.post('/api/auth/login',{data:{login,password:'Message@2026Initial'}})).json();
     expect((await request.post('/api/auth/password',{headers:{Authorization:'Bearer '+auth.token},data:{oldPassword:'Message@2026Initial',newPassword:'Message@2026Changed'}})).ok()).toBeTruthy();
-    return {id,login};
+    const session=await request.post('/api/auth/login',{data:{login,password:'Message@2026Changed'}});
+    expect(session.ok()).toBeTruthy();
+    return {id,login,token:(await session.json()).token};
   }
   const employee=await create('employee'), cc=await create('cc');
+  const initialSummary=await request.get('/api/messages/summary',{headers:{Authorization:'Bearer '+cc.token}});
+  expect(initialSummary.ok()).toBeTruthy();
+  const initialUnread=(await initialSummary.json()).announcements;
+  expect(typeof initialUnread).toBe('number');
   const errors:string[]=[];
   page.on('pageerror',e=>errors.push(e.message));
   page.on('console',m=>{if(m.type()==='error') errors.push(m.text());});
@@ -71,7 +77,7 @@ test('公告部门发布、多附件、回执与撤回；员工消息中心和�
   await expect(page).toHaveTitle(/OA/);
   await expect(page.locator('vite-error-overlay')).toHaveCount(0);
   await expect(page.locator('nav').getByRole('button',{name:'公告管理'})).toHaveCount(0);
-  await expect(page.getByText('未读公告 1',{exact:false})).toBeVisible();
+  await expect(page.getByText('未读公告 '+(initialUnread+1),{exact:false})).toBeVisible();
   await page.getByRole('tab',{name:'公告',exact:true}).click();
   row=page.getByRole('row').filter({hasText:title});
   await expect(row.getByRole('button',{name:'标记已读'})).toBeVisible();
@@ -83,7 +89,7 @@ test('公告部门发布、多附件、回执与撤回；员工消息中心和�
   expect((await download).suggestedFilename()).toBe('通知一.pdf');
   await dialog.getByRole('button',{name:'关闭公告弹窗'}).click();
   await expect(row.getByRole('button',{name:'标记已读'})).toHaveCount(0);
-  await expect(page.getByText('未读公告 0',{exact:false})).toBeVisible();
+  await expect(page.getByText('未读公告 '+initialUnread,{exact:false})).toBeVisible();
   await page.getByRole('tab',{name:'抄送我的'}).click();
   await page.getByRole('button',{name:'查看单据',exact:true}).click();
   await expect(dialog).toContainText('消息浏览器抄送申请'+suffix);
