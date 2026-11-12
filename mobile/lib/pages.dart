@@ -9,6 +9,7 @@ import 'main.dart' show PasswordPage;
 import 'requests.dart';
 import 'calendar.dart';
 import 'tasks.dart';
+import 'assets.dart';
 import 'documents.dart';
 import 'workbench.dart';
 
@@ -127,6 +128,7 @@ class _HomeState extends State<HomePage> with Guard<HomePage> {
           ),
           section('常用功能'),
           for (final entry in <(String, IconData, Widget)>[
+            ('资产领用', Icons.inventory_2_outlined, AssetsPage(api: widget.api)),
             (
               '文档资料',
               Icons.description_outlined,
@@ -364,7 +366,15 @@ class _MessageState extends State<MessagePage> with Guard<MessagePage> {
           );
         }
         if (!mounted) return;
-        if (row['document_id'] != null) {
+        if (row['asset_request_id'] != null) {
+          await go(
+            context,
+            AssetDetailPage(
+              api: widget.api,
+              id: row['asset_request_id'] as int,
+            ),
+          );
+        } else if (row['document_id'] != null) {
           await go(
             context,
             DocumentPage(api: widget.api, id: row['document_id'] as int),
@@ -412,6 +422,8 @@ class _MessageState extends State<MessagePage> with Guard<MessagePage> {
           );
         }
       });
+    } else if (row['item_type'] == 'ASSET') {
+      await go(context, AssetDetailPage(api: widget.api, id: row['id'] as int));
     } else if (row['item_type'] == 'TASK') {
       await go(
         context,
@@ -497,7 +509,9 @@ class _MessageState extends State<MessagePage> with Guard<MessagePage> {
                         color: const Color(0xff176b64),
                       ),
                       title: Text(
-                        '${r['item_type'] == 'TASK'
+                        '${r['item_type'] == 'ASSET'
+                            ? '资产领用 · '
+                            : r['item_type'] == 'TASK'
                             ? '任务 · '
                             : r['item_type'] == 'REQUEST'
                             ? '审批单 · '
@@ -507,6 +521,8 @@ class _MessageState extends State<MessagePage> with Guard<MessagePage> {
                         category == 'announcements' ||
                                 category == 'notifications'
                             ? '${r['read_at'] == null ? '未读' : '已读'} · ${timeOf(r['published_at'] ?? r['created_at'])}'
+                            : r['item_type'] == 'ASSET'
+                            ? '${assetStates[r['status']]} · ${r['user_name']}'
                             : r['item_type'] == 'TASK'
                             ? '${taskStates[r['status']]} · 截止：${timeOf(r['due_at'])}${r['overdue'] == true ? '（已过期）' : ''}'
                             : '${textOf(r['status'])} · ${r['reason'] ?? ''}\n${timeOf(r['created_at'])}',

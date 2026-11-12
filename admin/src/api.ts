@@ -60,6 +60,8 @@ export async function download(path: string, filename: string) {
 }
 export const labels: Record<string, string> = {
   PUBLISH_DOCUMENT:'发布文档', UPDATE_DOCUMENT:'修改文档', WITHDRAW_DOCUMENT:'下架文档', REPUBLISH_DOCUMENT:'重新上架文档',
+  ASSET: '资产领用', READY:'待发放', ISSUED:'已发放', IN_USE:'使用中', RETURNED:'已归还',
+  CREATE_ASSET_CATEGORY:'新增资产分类', UPDATE_ASSET_CATEGORY:'编辑资产分类', SAVE_ASSET:'登记资产', ADJUST_ASSET:'调整资产', APPLY_ASSET:'申请领用', APPROVE_ASSET:'审批领用', ISSUE_ASSET:'发放资产', WITHDRAW_ASSET:'撤回领用', REQUEST_ASSET_RETURN:'登记归还', CONFIRM_ASSET_RETURN:'确认归还',
   TASK: '任务', REQUEST: '审批单', TODO: '待处理', IN_PROGRESS: '进行中', COMPLETED: '已完成',
   CREATE_TASK:'创建任务', UPDATE_TASK:'修改任务', COMPLETE_TASK:'完成任务', CANCEL_TASK:'取消任务', RESTORE_TASK:'恢复任务', FOLLOW_TASK:'跟进任务', STATUS_TASK:'任务状态变更',
   CREATE_MEETING: '创建会议',

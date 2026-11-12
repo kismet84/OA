@@ -5,6 +5,8 @@ import DataTable from './DataTable.vue';
 import MessageCenter from './MessageCenter.vue';
 import Calendar from './Calendar.vue';
 import Tasks from './Tasks.vue';
+import Assets from './Assets.vue';
+const assetRequestId=ref<number|null>(null);
 import Documents from './Documents.vue';
 import Workbench from './Workbench.vue';
 const documentId = ref<number|null>(null);
@@ -116,6 +118,7 @@ const roleOptions = ['EMPLOYEE', 'SUPERVISOR', 'DEPT_HEAD', 'ADMIN', 'FINANCE'];
 const nav = computed(() => isAdmin.value ? [
   { key: 'overview', title: '工作台', icon: '概' },
   { key: 'documents', title: '文档资料', icon: '文' },
+  { key: 'assets', title: '资产领用', icon: '资' },
   { key: 'tasks', title: '待办任务', icon: '任' },
   { key: 'calendar', title: '日程与会议', icon: '会' },
   { key: 'departments', title: '部门组织', icon: '组' },
@@ -131,7 +134,7 @@ const nav = computed(() => isAdmin.value ? [
   { key: 'messages', title: '消息中心', icon: '信' },
   { key: 'announcements', title: '公告管理', icon: '告' },
   { key: 'audit', title: '操作审计', icon: '志' },
-] : [{ key: 'requests', title: '审批单据', icon: '审' }, { key: 'messages', title: '消息中心', icon: '信' }]);
+] : [{ key: 'assets', title: '资产领用', icon: '资' }, { key: 'requests', title: '审批单据', icon: '审' }, { key: 'messages', title: '消息中心', icon: '信' }]);
 const pageTitle = computed(() => nav.value.find((n) => n.key === page.value)?.title || '管理后台');
 const enabledUsers = computed(() => users.value.filter((u) => u.enabled));
 const nameOf = (id: number | null) => users.value.find((u) => u.id === id)?.name || '未指定';
@@ -292,7 +295,7 @@ function query(exporting = false) {
   return '?' + p;
 }
 async function load() {
-  if (['calendar','tasks','documents'].includes(page.value)) return;
+  if (['assets','calendar','tasks','documents'].includes(page.value)) return;
   loading.value = true;
   try {
     if (page.value === 'workflow') {
@@ -315,6 +318,7 @@ async function load() {
   }
 }
 async function navigate(key: string) {
+  if (key === 'assets') assetRequestId.value = null;
   page.value = key;
   offset.value = 0;
   Object.assign(filters, { userId: '', status: '', kind: '', from: '', to: '' });
@@ -376,7 +380,10 @@ function openCreate() {
     receipts.value = [];
   }
 }
+const outstandingAssets=ref(0);
 function edit(row: Row) {
+  outstandingAssets.value=0;
+  if(page.value==='users') api<Row>('/assets/outstanding/'+row.id).then(r=>outstandingAssets.value=r.count).catch(()=>{});
   openCreate();
   editId.value = row.id;
   if (page.value === 'users')
@@ -776,9 +783,10 @@ onMounted(async () => {
         </form>
       </section>
       <Documents v-else-if="page==='documents'" :management="isAdmin" :departments="departments" :document-id="documentId" />
+      <Assets v-else-if="page==='assets' && me" :me="me" :management="me.roles.split(',').some(r=>['ADMIN','FINANCE'].includes(r))" :request-id="assetRequestId" />
       <Tasks v-else-if="page==='tasks' && me" :me="me" :management="isAdmin" :task-id="taskId" />
       <Calendar v-else-if="page==='calendar' && me" :me="me" :management="isAdmin" :meeting-id="meetingId" />
-      <MessageCenter @open-document="id=>{documentId=id;page='documents'}" @open-task="id=>{taskId=id;page='tasks'}" @open-meeting="id=>{meetingId=id;page='calendar'}" v-else-if="['messages','announcements'].includes(page)" :key="page" :management="page==='announcements'" :departments="departments" @open-request="showDetail" />
+      <MessageCenter @open-asset="id=>{assetRequestId=id;page='assets'}" @open-document="id=>{documentId=id;page='documents'}" @open-task="id=>{taskId=id;page='tasks'}" @open-meeting="id=>{meetingId=id;page='calendar'}" v-else-if="['messages','announcements'].includes(page)" :key="page" :management="page==='announcements'" :departments="departments" @open-request="showDetail" />
       <section v-else class="card records">
         <div class="section-toolbar">
           <div>
@@ -1128,7 +1136,7 @@ onMounted(async () => {
               ><input v-model="account.enabled" type="checkbox" />启用账号</label
             >
             <p class="muted">
-              停用将立即使已有会话失效，并保留历史审批和打卡。若有下属、负责部门或待办审批，请先调整。
+              {{outstandingAssets>0?`该员工名下仍有 ${outstandingAssets} 件未归还资产，请安排交接。`:""}}停用将立即使已有会话失效，并保留历史审批和打卡。若有下属、负责部门或待办审批，请先调整。
             </p></template
           >
           <template v-if="modal === 'departments'"

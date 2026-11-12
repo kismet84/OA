@@ -390,3 +390,52 @@ Flyway `V8__company_documents.sql` 新增公司文档、当前附件绑定、历
 三端均保留原 `/messages/summary` 和消息中心五类，汇总不读写已读状态、不产生通知。后台保留组织数字与入门引导；员工网页“提交申请”工作区、Flutter工作台默认展示本人，详情可改日期、有权限时可选团队及部门。不提供班次、迟到、早退、缺卡、应出勤、工时或扣款规则，也不提供BI、自定义报表、图表引擎或统计导出。
 
 验收：先 `source scripts/env.sh && python3 scripts/verify-phase2-workbench.py` 生成独立验收数据和 `.runtime/workbench-fixture.json`，再 `npm --prefix admin run test:e2e -- workbench.spec.ts`。HTTP覆盖401/403/400、组织权限、部门递归、停用历史、253条打卡分页与全量统计、半天裁剪、补卡去重、六类终审48小时和等待分段、非审批数据隔离及消息汇总不变。Flutter `flutter analyze && flutter test` 覆盖权限筛选、日期错误、数字展示和下钻。全量回归仍使用既有脚本与浏览器用例。本地连续验收若触发每IP 15分钟100次登录限流，应等窗口结束或仅在本机开发Redis清理本机IP的登录限流测试计数，不改登录规则和会话。
+
+## 三期：资产领用（V9）
+
+全部路径以 `/api` 为前缀，沿用既有登录、组织、附件、系统通知和审计。未登录401、越权403、参数错误400、库存/状态/重复编号冲突409、不存在404，错误信息为中文。业务时间为 Asia/Shanghai。V9只新建资产表及通知关联列，不改写原业务数据。
+
+### 权限和台账
+
+仅 ADMIN、FINANCE（财务/行政）可维护分类和台账、调整库存/状态、发放、拒绝发放、确认收回及查询全员记录。其他员工只能查可申请目录、本人申请及本人资产；指定直属上级仅在申请待审批时可看该审批详情和处理，无部门负责人兜底或多级审批。管理员身份不能代替指定上级审批。
+
+| 接口 | 参数和行为 |
+| --- | --- |
+| `GET /assets/categories` | 管理员/财务查全部分类（含停用） |
+| `POST /assets/categories` | `{name,kind,enabled}`；kind为ITEM按件、CONSUMABLE消耗品 |
+| `PUT /assets/categories/{id}` | 同上，名称及启用可改，管理方式不可改 |
+| `GET /assets` | 管理台账；可选categoryId、status、offset；每页至多200条 |
+| `POST /assets`、`PUT /assets/{id}` | `{categoryId,code,name,brand,serialNumber,purchaseDate,location,note,attachmentId,unit,enabled}`；分类不可改，日期为YYYY-MM-DD，可选值可传null |
+| `POST /assets/{id}/adjust` | 按件`{status,reason}`，status仅AVAILABLE/REPAIR/SCRAPPED；消耗品`{delta,reason}`，delta为非零整数（绝对值≤1000000），库存结果0–100000000；原因必填 |
+| `GET /assets/catalog` | 所有登录人可用，只返回启用按件分类/消耗品的id、name、kind、unit和available数量，不暴露领用人或台账明细；ITEM的id为分类ID，CONSUMABLE的id为资产ID |
+
+按件编号公司内唯一（去首尾空格），重复409；状态AVAILABLE在库、ASSIGNED已领用、REPAIR维修中、SCRAPPED已报废。新增按件为在库；消耗品初始库存0，通过有原因的库存调整入库。已领用按件资产任何手工状态调整均409，须先确认收回。停用、报废不删除历史，也不解除领用关系。附件复用 `POST /attachments` 与鉴权下载，仅PDF/PNG/JPEG且≤10MB；新关联须为操作人本人上传，编辑可保留该资产原附件。资产附件不向员工目录开放，文档原件保护保持不变。
+
+### 申请、审批、发放与归还
+
+| 接口 | 参数和行为 |
+| --- | --- |
+| `POST /assets/requests` | `{categoryId,consumableId,quantity,purpose,expectedDate,needsReturn,returnDate}`；categoryId按件分类与consumableId消耗品二选一；数量1–100000整数，用途必填≤2000字，期望日期必填 |
+| `GET /assets/requests` | scope=mine（默认）/pending/all；all仅管理员/财务；可选userId、departmentId、assetId、offset，按资产筛选同时覆盖消耗品与按件分配；每页至多200条 |
+| `GET /assets/requests/{id}` | 授权详情、assignments编号分配及canApprove/canManage/isOwner操作标记 |
+| `POST /assets/requests/{id}/approve` | 指定直属上级：`{approved,note}`；驳回原因必填，说明≤1000字 |
+| `POST /assets/requests/{id}/withdraw` | 本人在PENDING/READY可撤回，无请求体 |
+| `POST /assets/requests/{id}/issue` | 管理员/财务：按件`{assetIds:[编号对应的资产ID],note}`，须等于申请件数且不可重复；消耗品`{note}`扣申请数量；拒发`{rejected:true,note}`原因必填 |
+| `GET /assets/mine?offset=0` | 本人按件分配和历史；returned_at为空代表仍在名下。消耗品历史见我的申请；每页至多200条 |
+| `POST /assets/requests/{id}/return` | 本人按件领用后`{note}`发起整单归还登记，不立即释放资产；重复登记409 |
+| `POST /assets/requests/{id}/confirm-return` | 管理员/财务：`{note,repair:false}`确认整单收回，也可无需员工登记直接收回；说明必填，repair=true整单登记维修，否则在库 |
+| `GET /assets/outstanding/{userId}` | 管理员/财务获取`{count}`未归还件数；后台账号编辑弹窗中文提示，仅提示、不阻止停用 |
+
+直属上级在提交时取当前有效manager_id并保存到申请；没有有效直属上级直接READY待发放，否则PENDING待审批。上级批准进入READY；上级驳回或行政拒发进入REJECTED。发放按件逐件行锁并建分配，数据库唯一索引保证一个编号只能有一个当前领用人；整笔事务，任一编号不可用则回滚全部。消耗品原子扣库存，库存不足409且不变负数。申请不预占资产或库存，发放时重新检查分类/资产启用状态。
+
+按件needsReturn默认true，false可选；消耗品强制false。预计归还日期可选，需归还时不得早于期望领用日期。需归还按件发放后IN_USE使用中，其余ISSUED已发放。按件即使原选无需归还，也保留名下记录并可收回。员工归还登记保持当前状态，return_requested=true；行政确认后RETURNED已归还，释放全部分配并记录归还时间。WITHDRAWN已撤回仅允许发放前。当前只支持整单发放和整单归还，不支持部分发放/归还；不做采购、折旧、供应商、扫码硬件或库存进销存。
+
+### 消息与验收
+
+`GET /messages?category=pending` 合并原六类审批、待办任务和资产，资产条目标记`item_type=ASSET`、title为「资产领用」。`GET /messages/summary.pending` 增加指定上级待审批、ADMIN/FINANCE待发放和待确认归还的申请数（按单计数）。原消息分类、未读和原审批/任务字段保持兼容。资产我的申请从资产页面查看，不改变消息中心“我发起的”原六类口径。
+
+批准、驳回、发放、拒发和确认归还向申请人写入原notifications系统通知，以asset_request_id关联，三端可打开详情；无真实推送。所有维护和状态流转写原audit_logs，库存调整记录数量/状态及原因。工作台六类审批统计继续仅取原requests，不计资产，全部考勤/审批汇总规则不变。
+
+本地验收：`source scripts/env.sh && python3 scripts/verify-phase3-assets.py`；浏览器 `npm --prefix admin run test:e2e -- assets.spec.ts` 覆盖后台登记、员工网页申请、上级混合待办审批、行政发放、员工归还及确认、消耗品扣减与移动网页。另跑Maven全部测试、前端构建、既有HTTP和浏览器回归，以及 `cd mobile && flutter analyze && flutter test`（资产组件测试含默认归还、表单冲突、归还登记、混合待办审批返回）。测试仅创建本地独立业务数据，不提交上传文件、构建产物或数据库。
+
+Flutter真实接口验收复用上述HTTP脚本创建的独立账号：从 `.runtime/assets-http-result.json` 读取 `prefix`，在 `mobile/` 下设置 `OA_ASSET_PREFIX=<prefix>` 后运行 `flutter test test/assets_live_test.dart`，覆盖员工申请、直属审批、行政发放、员工归还、行政收回、消耗品扣减及撤回。未设置该变量时此项跳过，常规组件测试仍执行。

@@ -10,10 +10,12 @@ import org.springframework.web.bind.annotation.*;
 class MessageController {
   final JdbcTemplate db;
   final RequestController requests;
+  final AssetController assets;
 
-  MessageController(JdbcTemplate db, RequestController requests) {
+  MessageController(JdbcTemplate db, RequestController requests, AssetController assets) {
     this.db = db;
     this.requests = requests;
+    this.assets = assets;
   }
 
   @GetMapping("/colleagues")
@@ -38,7 +40,8 @@ class MessageController {
                     "SELECT count(*) FROM tasks t JOIN task_assignees a ON a.task_id=t.id WHERE"
                         + " a.user_id=? AND t.status IN ('TODO','IN_PROGRESS')",
                     Long.class,
-                    id),
+                    id)
+                + assets.pending(Auth.actor(req)),
         "notifications",
             db.queryForObject(
                 "SELECT count(*) FROM notifications WHERE user_id=? AND read_at IS NULL",
@@ -86,11 +89,18 @@ class MessageController {
                   + " to_jsonb(t)||jsonb_build_object('item_type','TASK','task_id',t.id,'creator_name',u.name,'overdue',t.due_at<localtimestamp)"
                   + " data,t.created_at,t.id FROM tasks t JOIN users u ON u.id=t.creator_id JOIN"
                   + " task_assignees a ON a.task_id=t.id WHERE a.user_id=? AND t.status IN"
-                  + " ('TODO','IN_PROGRESS')) combined ORDER BY created_at DESC,id"
+                  + " ('TODO','IN_PROGRESS') UNION ALL SELECT"
+                  + " to_jsonb(r)||jsonb_build_object('item_type','ASSET','title','资产领用','user_name',u.name)"
+                  + " data,r.created_at,r.id FROM asset_requests r JOIN users u ON u.id=r.user_id"
+                  + " WHERE "
+                  + assets.pendingSql()
+                  + ") combined ORDER BY created_at DESC,id"
                   + " DESC,data->>'item_type' LIMIT 200 OFFSET ?",
               String.class,
               a.id(),
               a.id(),
+              a.id(),
+              AssetController.manages(a),
               start);
       var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
       return data.stream()

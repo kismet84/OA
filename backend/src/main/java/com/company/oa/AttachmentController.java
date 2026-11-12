@@ -86,6 +86,7 @@ class AttachmentController {
                 a.id(),
                 a.id())
             == 0
+        && !(a.has("FINANCE") && db.queryForObject("SELECT count(*) FROM assets WHERE attachment_id=?", Long.class, id)>0)
         && db.queryForObject("SELECT count(*) FROM announcement_attachments x JOIN announcements n ON n.id=x.announcement_id JOIN announcement_recipients r ON r.announcement_id=n.id WHERE x.attachment_id=? AND r.user_id=? AND n.withdrawn_at IS NULL", Long.class, id, a.id()) == 0) throw new ApiException(403, "无权访问该附件");
     Path path = root.resolve(id.toString());
     if (!Files.isRegularFile(path)) throw new ApiException(404, "附件文件缺失，请联系管理员");

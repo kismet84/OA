@@ -228,7 +228,8 @@ test('报销页面校验明细和票据，管理员及财务登记支付更正',
   await page.getByLabel('工号 / 手机号').fill(login);
   await page.getByLabel('密码', { exact: true }).fill('Finance@2026Changed');
   await page.getByRole('button', { name: '登录管理后台', exact: true }).click();
-  await expect(page.locator('nav').getByRole('button')).toHaveCount(2);
+  await expect(page.locator('nav').getByRole('button')).toHaveCount(3);
+  await expect(page.locator('nav').getByRole('button', { name: '资产领用' })).toBeVisible();
   await expect(page.locator('nav').getByRole('button', { name: '消息中心' })).toBeVisible();
   await expect(page.getByRole('button', { name: '提交申请', exact: true })).toHaveCount(0);
   await page.getByRole('row').filter({ hasText: employee }).getByRole('button', { name: '查看 / 审批' }).click();
