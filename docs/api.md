@@ -153,7 +153,7 @@
 
 定位三项必须存在且合法：纬度 [-90,90]、经度 [-180,180]、精度 (0,100000] 米；现场打卡时间取服务端当前上海时间；补卡通过审批申请，见上文。`NORMAL` 要求匹配登记 SSID 或真实来源 IP。`FIELD` 要求本人有已批准的 TRAVEL/OUTING，且 `startAt <= 当前时间 < endAt`；任何地点和网络均可。请假不阻止打卡和查记录。
 
-正式接口不接受用户填写出口 IP，仅使用连接来源；若连接来源恰好在 `TRUSTED_PROXIES` 中，则读取由 Nginx **覆盖写入**的 `X-OA-Client-IP`。不要信任任意来源的转发头。SSID 是客户端声明，不能证明设备真实连入指定 Wi-Fi；需要强网络校验时只登记办公出口 IP，后续 App 再补充可信网络采集。
+正式接口不接受用户填写出口 IP，仅使用连接来源；若连接来源恰好在 `TRUSTED_PROXIES` 中，则读取由反向代理**覆盖写入**的 `X-OA-Client-IP`。不要信任任意来源的转发头。Nginx 样例使用连接来源覆盖此头。Mac 的 Caddy + Cloudflare 链路必须在后端启动环境设置 `TRUSTED_PROXIES=127.0.0.1`，并在 Caddy 的 `reverse_proxy` 中设置 `header_up X-OA-Client-IP {http.request.header.CF-Connecting-IP}`（[完整样例](../deploy/caddy/README.md)）。Caddy/后端只绑定 loopback，Cloudflare 隧道是外部唯一入口；无 `CF-Connecting-IP` 时不填造 IP，受信代理缺少合法专用头的打卡请求返回 400「可信反向代理必须传递真实客户端 IP」。后端不读取任意 `X-Forwarded-For`，本机 dev 默认不信任 loopback。SSID 是客户端声明，不能证明设备真实连入指定 Wi-Fi；需要强网络校验时只登记办公出口 IP，后续 App 再补充可信网络采集。
 
 `GET /punches?userId=&from=2026-11-01&to=2026-11-30&kind=&offset=0`：日期范围包含首尾，200 条/页。员工只能看本人，部门负责人无权批量看他人打卡，管理员可看全员。
 

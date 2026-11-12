@@ -1,0 +1,27 @@
+# Mac 生产样例：Cloudflare -> cloudflared -> 本机 Caddy -> 本机后端。
+# 仅允许本机隧道访问；不要将此监听端口暴露到公网/局域网。
+http://:8088 {
+	bind 127.0.0.1
+	request_body {
+		max_size 11MB
+	}
+	log
+
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8080 {
+			# 覆盖客户端同名头。缺少 CF 头时为空，由后端拒绝打卡。
+			header_up X-OA-Client-IP {http.request.header.CF-Connecting-IP}
+		}
+	}
+
+	handle_path /staff/* {
+		root * /Users/kis/oa-system/dist/staff
+		try_files {path} /index.html
+		file_server
+	}
+	handle {
+		root * /Users/kis/oa-system/dist
+		try_files {path} /index.html
+		file_server
+	}
+}

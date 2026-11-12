@@ -1,0 +1,31 @@
+# Mac / Caddy / Cloudflare 出口 IP 配置
+
+正式链路：手机 → Cloudflare → cloudflared → Caddy `127.0.0.1:8088` → 后端 `127.0.0.1:8080`，公网地址为 `https://oa.bzywc.cn`。本目录是后续人工应用到 Mac 的样例，不会自动修改或部署到 Mac。
+
+## 配置
+
+1. 将 [Caddyfile](Caddyfile) 的 API 代理配置合入 Mac 的 `~/oa-system/Caddyfile`；完整样例同时包含管理后台和 `/staff/` 的 SPA 回退。静态目录按实际安装位置调整。Caddy 必须只绑定 `127.0.0.1`，cloudflared 的 origin 保持 `http://127.0.0.1:8088`。
+2. 在 Mac 的 `~/oa-system/bin/start-backend.sh` 中，加载原有环境之后、执行 `java` 之前加入以下导出（保留原有数据库、Redis、上传目录、profile 和 JVM 参数）：
+
+   ```bash
+   export SERVER_ADDRESS=127.0.0.1
+   export TRUSTED_PROXIES=127.0.0.1
+   ```
+
+   这是 Mac 生产代理专用设置；本地 dev 默认保持 `TRUSTED_PROXIES` 为空，不要加入 `scripts/dev-up.sh`。
+3. 后续人工在 Mac 检查配置并重载 Caddy、重启后端：
+
+   ```bash
+   ~/oa-system/bin/caddy validate --config ~/oa-system/Caddyfile --adapter caddyfile
+   ~/oa-system/bin/caddy reload --config ~/oa-system/Caddyfile --adapter caddyfile
+   launchctl kickstart -k gui/$(id -u)/com.company.oa.backend
+   ```
+
+## 信任边界与验收
+
+Caddy 用 Cloudflare 覆盖写入的 `CF-Connecting-IP` **覆盖**上游 `X-OA-Client-IP`（[Caddy 官方 header_up 说明](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy#headers)）。后端仅当连接来源属于 `TRUSTED_PROXIES` 时读取此专用头，并继续执行合法 IP 校验和规范化；其它来源忽略此头，始终不信任 `X-Forwarded-For` 链。这个配置的信任边界包含本机进程，因此 Caddy 和后端都不能暴露给外部直连，也不能让其它入口绕过 Cloudflare 注入 `CF-Connecting-IP`。
+
+- 通过公网完成有效定位后提交打卡，记录的 `exit_ip` 应是手机公网出口，而非 `127.0.0.1`。正常打卡仍须由管理员在生产库登记真实办公出口 IP 或 SSID；本样例不登记任何网络。
+- 本机直连 Caddy、不带 `CF-Connecting-IP`，即使伪造 `X-OA-Client-IP` 或 `X-Forwarded-For`，打卡也应返回 400「可信反向代理必须传递真实客户端 IP」。无效的 CF IP 也应被拒绝，不能回退为 loopback。
+- 健康检查 `GET /api/health` 不依赖打卡 IP 头，可继续从本机调用。
+- 在默认 dev 环境运行 `scripts/verify-mvp.py`，防伪造头用例应继续返回 400。受信代理路径另由 `PunchControllerTest` 覆盖；不要为跑 dev 验收而开启 loopback 信任。

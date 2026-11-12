@@ -3,6 +3,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 
 import 'api.dart';
+import 'punch_location.dart';
 import 'ui.dart';
 import 'validation.dart';
 import 'main.dart' show PasswordPage;
@@ -213,6 +214,7 @@ class PunchPage extends StatefulWidget {
 class _PunchState extends State<PunchPage> with Guard<PunchPage> {
   String kind = 'NORMAL';
   Position? position;
+  bool usedLastKnown = false;
   String? ssid;
   List<Json> history = [];
   @override
@@ -226,28 +228,13 @@ class _PunchState extends State<PunchPage> with Guard<PunchPage> {
   });
   Future<void> locate() async {
     position = null;
+    usedLastKnown = false;
     ssid = null;
-    if (!await Geolocator.isLocationServiceEnabled()) {
-      throw ApiError('定位服务未开启，请在系统设置中开启');
-    }
-    var permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-    if (permission == LocationPermission.denied) {
-      throw ApiError('定位权限被拒绝；允许定位后才能打卡');
-    }
-    if (permission == LocationPermission.deniedForever) {
-      throw ApiError('定位权限已被系统禁止，请打开应用设置允许定位');
-    }
-    final value = await Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        timeLimit: Duration(seconds: 25),
-      ),
-    );
+    final location = await getPunchLocation();
+    final value = location.position;
     punchPayload(kind, value.latitude, value.longitude, value.accuracy);
     position = value;
+    usedLastKnown = location.usedLastKnown;
     try {
       ssid = await NetworkInfo().getWifiName();
       if (ssid == '<unknown ssid>') ssid = null;
@@ -281,7 +268,7 @@ class _PunchState extends State<PunchPage> with Guard<PunchPage> {
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Text(
-                '纬度 ${position!.latitude.toStringAsFixed(6)}，经度 ${position!.longitude.toStringAsFixed(6)}\n精度 ${position!.accuracy.toStringAsFixed(1)} 米\nWi-Fi：${ssid ?? '未能获取，由服务器校验出口 IP'}',
+                '${usedLastKnown ? '使用最近一次定位\n' : ''}纬度 ${position!.latitude.toStringAsFixed(6)}，经度 ${position!.longitude.toStringAsFixed(6)}\n精度 ${position!.accuracy.toStringAsFixed(1)} 米\nWi-Fi：${ssid ?? '未能获取，由服务器校验出口 IP'}',
               ),
             ),
           ),

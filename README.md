@@ -174,6 +174,14 @@ Nginx 固定内网地址 `172.30.0.10`，后端仅信任该来源的 `X-OA-Clien
 
 建议备份 PostgreSQL 与上传文件卷，保留 `.env` 和 TLS 私钥的安全副本；修改 `.env` 中数据库密码不会自动更改已有数据库的用户密码。
 
+## Mac / Caddy + Cloudflare 正式环境
+
+当前 Mac 正式链路是 `https://oa.bzywc.cn` → Cloudflare → cloudflared → Caddy `127.0.0.1:8088` → 后端 `127.0.0.1:8080`。完整配置与人工应用步骤见 [Mac 部署样例](deploy/caddy/README.md)；上述 Compose/Nginx 是另一种部署方式。
+
+Mac 的 `start-backend.sh` 必须在执行 Java 前导出 `TRUSTED_PROXIES=127.0.0.1`；Caddy 必须用 `header_up X-OA-Client-IP {http.request.header.CF-Connecting-IP}` 覆盖写入客户端 IP。只转发 `CF-Connecting-IP` 无法让后端识别出口。缺少或非法的专用 IP 头时，受信代理的打卡请求仍返回 400，不能使用 `127.0.0.1` 兜底。Caddy 和后端均仅绑定 loopback，入口保持 Cloudflare 隧道；本机 dev 默认不设 `TRUSTED_PROXIES`。
+
+员工端先以 medium 精度获取当前位置（25 秒上限）；超时后仅接受 5 分钟内、精度大于 0 且不超过 200 米的有效缓存，并显示「使用最近一次定位」。没有合格缓存时提示「定位超时，请到信号较好的地方重试」，不提交打卡；SSID 获取失败仍可交由服务器校验出口 IP。
+
 ## 手工验证操作
 
 1. 登录管理员，首次改密并重新登录。在“部门组织”建立部门，在“账号与角色”开通负责人（部门负责人角色）、主管（直属上级角色）、员工；编辑部门选择负责人，编辑员工选择主部门和主管。每人一个主部门，审批直接读取组织关系。上级/负责人均未指定或指向自己时拒绝提交，不会自动批准。
