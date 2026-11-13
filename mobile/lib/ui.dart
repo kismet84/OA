@@ -86,6 +86,11 @@ mixin Guard<T extends StatefulWidget> on State<T> {
   Widget get feedback => Column(
     children: [
       if (busy) const LinearProgressIndicator(),
+      ValueListenableBuilder<String>(
+        valueListenable: attachmentProgress,
+        builder: (context, value, child) =>
+            value.isEmpty ? const SizedBox.shrink() : Text(value),
+      ),
       if (error != null)
         Padding(
           padding: const EdgeInsets.all(12),

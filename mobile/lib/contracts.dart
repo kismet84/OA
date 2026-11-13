@@ -6,6 +6,7 @@ import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'api.dart';
+import 'urge_button.dart';
 import 'ui.dart';
 
 const contractStates = {
@@ -45,13 +46,21 @@ Future<List<Json>> pickContractFiles(Api api) async {
     allowedExtensions: ['pdf', 'png', 'jpg', 'jpeg'],
   );
   final files = <Json>[];
-  for (final file in result) {
+  for (final (i, file) in result.indexed) {
     final size = await file.length();
-    if (size == null || size == 0 || size > 10 * 1024 * 1024) {
+    if (size == null || size == 0) {
       throw ApiError('每份附件须为1字节至10MB');
     }
     final bytes = await file.readAsBytes();
-    files.add({'id': await api.upload(file.name, bytes), 'name': file.name});
+    files.add({
+      'id': await api.upload(
+        file.name,
+        bytes,
+        index: i + 1,
+        total: result.length,
+      ),
+      'name': file.name,
+    });
   }
   return files;
 }
@@ -415,6 +424,12 @@ class _ContractDetailState extends State<ContractDetailPage>
         children: [
           feedback,
           if (d != null) ...[
+            UrgeButton(
+              api: widget.api,
+              detail: d,
+              path: '/contracts/${widget.id}',
+              onDone: fetch,
+            ),
             section('${d['code']} · ${d['name']}'),
             Text(
               '${contractStates[d['status']]} · ${contractTypes[d['type']]}',

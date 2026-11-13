@@ -73,7 +73,7 @@ class TaskController {
       @RequestParam(defaultValue = "0") int offset,
       HttpServletRequest req) {
     Actor a = Auth.actor(req);
-    ApiException.require(status == null || status.isEmpty() || STATES.contains(status), "任务状态无效");
+    ApiException.require(status == null || status.isEmpty() || (STATES.contains(status)||status.equals("ACTIVE")), "任务状态无效");
     ApiException.require(Set.of("", "assigned", "initiated").contains(scope), "任务范围无效");
     ApiException.require(dueFrom == null || dueTo == null || !dueFrom.isAfter(dueTo), "截止日期范围无效");
     var sql =
@@ -94,7 +94,8 @@ class TaskController {
       creatorId = a.id();
       sql.append(" AND t.status<>'CANCELLED'");
     }
-    if (status != null && !status.isEmpty()) {
+    if ("ACTIVE".equals(status))sql.append(" AND t.status IN ('TODO','IN_PROGRESS')");
+    else if (status != null && !status.isEmpty()) {
       sql.append(" AND t.status=?");
       args.add(status);
     }

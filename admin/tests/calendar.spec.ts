@@ -1,4 +1,4 @@
-import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
+import { test, expect, type APIRequestContext, type Page } from './fixtures';
 test.use({ locale: 'zh-CN', timezoneId: 'America/Los_Angeles' });
 async function fixture(request: APIRequestContext) {
   const call = async (path: string, method = 'GET', data?: any, token?: string, status = 200) => {

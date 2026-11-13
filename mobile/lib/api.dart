@@ -1,7 +1,13 @@
 import 'dart:convert';
+
+import 'attachment_compress.dart';
+
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart' show ValueNotifier;
+
+final attachmentProgress = ValueNotifier<String>('');
 
 typedef Json = Map<String, dynamic>;
 
@@ -102,26 +108,46 @@ class Api {
     return result['user'] as Json;
   }
 
-  Future<String> upload(String name, Uint8List bytes) async {
-    if (bytes.isEmpty || bytes.length > 10 * 1024 * 1024) {
-      throw ApiError('每份附件须为 1 字节至 10MB');
-    }
-    final ext = name.split('.').last.toLowerCase();
-    if (!['pdf', 'png', 'jpg', 'jpeg'].contains(ext)) {
-      throw ApiError('附件仅支持 PDF、PNG、JPEG');
-    }
-    final request = http.MultipartRequest('POST', uri('/attachments'))
-      ..headers.addAll(headers)
-      ..files.add(http.MultipartFile.fromBytes('file', bytes, filename: name));
+  Future<String> upload(
+    String name,
+    Uint8List bytes, {
+    int index = 1,
+    int total = 1,
+  }) async {
+    attachmentProgress.value = '正在压缩 第 $index/$total 份';
     try {
+      final prepared = await compressAttachment(name, bytes);
+      name = prepared.name;
+      bytes = prepared.bytes;
+      if (bytes.isEmpty || bytes.length > 10 * 1024 * 1024) {
+        throw ApiError('每份附件须为 1 字节至 10MB');
+      }
+      if (![
+        'pdf',
+        'png',
+        'jpg',
+        'jpeg',
+      ].contains(name.split('.').last.toLowerCase())) {
+        throw ApiError('附件仅支持 PDF、PNG、JPEG');
+      }
+      attachmentProgress.value = '正在上传 第 $index/$total 份';
+      final request = http.MultipartRequest('POST', uri('/attachments'))
+        ..headers.addAll(headers)
+        ..files.add(
+          http.MultipartFile.fromBytes('file', bytes, filename: name),
+        );
       final response = await http.Response.fromStream(
         await client.send(request).timeout(const Duration(seconds: 60)),
       );
       return decode(response)['id'] as String;
     } on ApiError {
       rethrow;
+    } on FormatException catch (e) {
+      throw ApiError(e.message);
     } catch (_) {
       throw ApiError('上传失败，请检查网络后重试');
+    } finally {
+      attachmentProgress.value = '';
     }
   }
 

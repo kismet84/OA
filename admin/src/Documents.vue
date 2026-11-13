@@ -85,10 +85,11 @@ function edit(create = false) {
 async function upload(e: Event) {
   const input = e.target as HTMLInputElement;
   await run(async () => {
-    for (const f of Array.from(input.files || [])) {
+    const selected=Array.from(input.files||[]);
+    for (const [i,f] of selected.entries()) {
       if (files.value.length >= 10) throw new Error('最多 10 份附件');
       const data = new FormData();
-      data.append('file', f);
+      data.append('file', f);data.append('uploadIndex',String(i+1));data.append('uploadTotal',String(selected.length));
       files.value.push(await api('/attachments', 'POST', data));
     }
   });

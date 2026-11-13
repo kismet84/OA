@@ -71,7 +71,8 @@ call('/auth/me',token=t3,expect=401)
 t=login(prefix,'Mobile@2026Again')
 assert len(call('/auth/sessions',token=t))==1
 summary=call('/messages/summary',token=t)
-assert set(summary)=={'pending','notifications','announcements'}
+assert {'pending','notifications','announcements'} <= set(summary)
+assert all(isinstance(summary[k],int) for k in ['approvalsRequests','approvalsContracts','approvalsAssets','tasks','payments'])
 call('/admin/users/'+str(uid),'PUT',{**body,'password':None,'enabled':False},at)
 call('/auth/me',token=t,expect=401)
 assert call('/directory?departmentId='+str(dep),token=at)==[]

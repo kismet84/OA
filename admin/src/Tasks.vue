@@ -2,10 +2,10 @@
 import {onMounted, reactive, ref, watch} from 'vue';
 import {api, display, type Actor, type Row} from './api';
 import DataTable from './DataTable.vue';
-const props=defineProps<{me:Actor; management?:boolean; taskId?:number|null}>();
+const props=defineProps<{me:Actor;pendingOnly?:boolean; management?:boolean; taskId?:number|null}>();
 const states:Record<string,string>={TODO:'待处理',IN_PROGRESS:'进行中',COMPLETED:'已完成',CANCELLED:'已取消'};
 const rows=ref<Row[]>([]),people=ref<Row[]>([]),detail=ref<Row|null>(null),editing=ref(false),busy=ref(false),error=ref(''),message=ref(''),offset=ref(0),content=ref('');
-const filters=reactive({scope:props.management?'':'assigned',status:'',dueFrom:'',dueTo:'',creatorId:'',assigneeId:''});
+const filters=reactive({scope:props.pendingOnly?'assigned':props.management?'':'assigned',status:props.pendingOnly?'ACTIVE':'',dueFrom:'',dueTo:'',creatorId:'',assigneeId:''});
 const form=reactive({title:'',description:'',dueAt:'',assigneeIds:[] as number[]});
 async function run(fn:()=>Promise<void>){if(busy.value)return;busy.value=true;error.value='';message.value='';try{await fn()}catch(e){error.value=e instanceof Error?e.message:'操作失败'}finally{busy.value=false}}
 async function load(){const q=new URLSearchParams({offset:String(offset.value)});Object.entries(filters).forEach(([k,v])=>{if(v)q.set(k,v)});rows.value=await api('/tasks?'+q)}
@@ -24,7 +24,7 @@ watch(()=>props.taskId,id=>{if(id)run(()=>open(id))});
   <p>指派与跟进，无需审批。截止日期按北京时间，仅作提醒；每页最多200条。</p>
   <form class="filters" @submit.prevent="run(async()=>{offset=0;await load()})">
     <label>任务范围<select v-model="filters.scope"><option value="">{{management?'全部任务':'我有权查看的任务'}}</option><option value="assigned">我负责的</option><option value="initiated">我发起的（未取消）</option></select></label>
-    <label>任务状态<select v-model="filters.status"><option value="">全部状态</option><option v-for="(v,k) in states" :key="k" :value="k">{{v}}</option></select></label>
+    <label>任务状态<select v-model="filters.status"><option value="">全部状态</option><option value="ACTIVE">未完成任务</option><option v-for="(v,k) in states" :key="k" :value="k">{{v}}</option></select></label>
     <label>截止起日<input v-model="filters.dueFrom" type="date" /></label><label>截止止日<input v-model="filters.dueTo" type="date" /></label>
     <label>发起人<select v-model="filters.creatorId" aria-label="发起人筛选"><option value="">全部</option><option v-for="p in people" :key="p.id" :value="String(p.id)">{{p.name}}</option></select></label>
     <label>负责人<select v-model="filters.assigneeId" aria-label="负责人筛选"><option value="">全部</option><option v-for="p in people" :key="p.id" :value="String(p.id)">{{p.name}}</option></select></label>

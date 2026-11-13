@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.*;
 class WorkbenchController {
   final JdbcTemplate db;
   final Clock clock;
+  @org.springframework.beans.factory.annotation.Autowired AttendanceService attendanceService;
 
   WorkbenchController(JdbcTemplate db, Clock clock) {
     this.db = db;
@@ -185,6 +186,10 @@ class WorkbenchController {
             Long.class,
             start.atStartOfDay(),
             end.plusDays(1).atStartOfDay()));
+    var anomalies=new LinkedHashMap<String,Object>();
+    for(String k:List.of("lateCount","earlyCount","missingCount"))anomalies.put(k,0);
+    for(long uid:active){var stats=attendanceService.summary(uid,start,end);for(String k:anomalies.keySet())anomalies.put(k,((Number)anomalies.get(k)).intValue()+((Number)stats.get(k)).intValue());}
+    attendance.put("anomalies",anomalies);
     long target = userId == null ? a.id() : userId;
     String relevant =
         personal

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'api.dart';
+import 'urge_button.dart';
 import 'ui.dart';
 
 const assetStates = {
@@ -299,6 +300,12 @@ class _AssetDetailState extends State<AssetDetailPage>
         children: [
           feedback,
           if (d != null) ...[
+            UrgeButton(
+              api: widget.api,
+              detail: d,
+              path: '/assets/requests/${widget.id}',
+              onDone: fetch,
+            ),
             Text('${d['category_name']} · ${d['user_name']}'),
             Text('状态：${assetStates[d['status']]} · 数量：${d['quantity']}'),
             Text('用途：${d['purpose']}'),

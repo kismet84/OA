@@ -13,11 +13,15 @@ class MessageController {
   final AssetController assets;
   final ContractController contracts;
 
-  MessageController(JdbcTemplate db, RequestController requests, AssetController assets, ContractController contracts) {
+  MessageController(
+      JdbcTemplate db,
+      RequestController requests,
+      AssetController assets,
+      ContractController contracts) {
     this.db = db;
     this.requests = requests;
     this.assets = assets;
-    this.contracts=contracts;
+    this.contracts = contracts;
   }
 
   @GetMapping("/colleagues")
@@ -32,31 +36,48 @@ class MessageController {
   Object summary(HttpServletRequest req) {
     contracts.reminders();
     long id = Auth.actor(req).id();
-    return Map.of(
-        "pending",
-            db.queryForObject(
-                    "SELECT count(*) FROM requests r JOIN approval_steps s ON s.request_id=r.id AND"
-                        + " s.step=r.current_step WHERE r.status='PENDING' AND s.approver_id=?",
-                    Long.class,
-                    id)
-                + db.queryForObject(
-                    "SELECT count(*) FROM tasks t JOIN task_assignees a ON a.task_id=t.id WHERE"
-                        + " a.user_id=? AND t.status IN ('TODO','IN_PROGRESS')",
-                    Long.class,
-                    id)
-                + assets.pending(Auth.actor(req)) + contracts.pending(Auth.actor(req)),
+    var out = new LinkedHashMap<String, Object>();
+    long approvals =
+        db.queryForObject(
+            "SELECT count(*) FROM requests r JOIN approval_steps s ON s.request_id=r.id AND"
+                + " s.step=r.current_step WHERE r.status='PENDING' AND s.approver_id=?",
+            Long.class,
+            id);
+    long tasks =
+        db.queryForObject(
+            "SELECT count(*) FROM tasks t JOIN task_assignees a ON a.task_id=t.id WHERE a.user_id=?"
+                + " AND t.status IN ('TODO','IN_PROGRESS')",
+            Long.class,
+            id);
+    long asset = assets.pending(Auth.actor(req)), contract = contracts.pending(Auth.actor(req));
+    out.put("pending", approvals + tasks + asset + contract);
+    out.put("approvalsRequests", approvals);
+    out.put("approvalsContracts", contract);
+    out.put("approvalsAssets", asset);
+    out.put("tasks", tasks);
+    out.put(
+        "payments",
+        Auth.actor(req).admin() || Auth.actor(req).has("FINANCE")
+            ? db.queryForObject(
+                "SELECT count(*) FROM requests WHERE kind='EXPENSE' AND status='APPROVED' AND"
+                    + " payment_status='UNPAID'",
+                Long.class)
+            : 0L);
+    out.put(
         "notifications",
-            db.queryForObject(
-                "SELECT count(*) FROM notifications WHERE user_id=? AND read_at IS NULL",
-                Long.class,
-                id),
+        db.queryForObject(
+            "SELECT count(*) FROM notifications WHERE user_id=? AND read_at IS NULL",
+            Long.class,
+            id));
+    out.put(
         "announcements",
-            db.queryForObject(
-                "SELECT count(*) FROM announcement_recipients r JOIN announcements a ON"
-                    + " a.id=r.announcement_id WHERE r.user_id=? AND r.read_at IS NULL AND"
-                    + " a.withdrawn_at IS NULL",
-                Long.class,
-                id));
+        db.queryForObject(
+            "SELECT count(*) FROM announcement_recipients r JOIN announcements a ON"
+                + " a.id=r.announcement_id WHERE r.user_id=? AND r.read_at IS NULL AND"
+                + " a.withdrawn_at IS NULL",
+            Long.class,
+            id));
+    return out;
   }
 
   @GetMapping("/messages")
@@ -68,7 +89,9 @@ class MessageController {
     int start = Math.max(0, offset);
     if (category.equals("notifications"))
       return db.queryForList(
-          "SELECT * FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 200 OFFSET ?",
+          "SELECT * FROM notifications WHERE user_id=?"
+              + ("true".equals(req.getParameter("unread")) ? " AND read_at IS NULL" : "")
+              + " ORDER BY id DESC LIMIT 200 OFFSET ?",
           a.id(),
           start);
     if (category.equals("announcements"))
@@ -80,6 +103,10 @@ class MessageController {
           start);
     ApiException.require(Set.of("pending", "initiated", "cc").contains(category), "消息类别无效");
     if (category.equals("pending")) {
+      String itemType = req.getParameter("itemType");
+      ApiException.require(
+          itemType == null || Set.of("REQUEST", "CONTRACT", "ASSET", "TASK").contains(itemType),
+          "待办业务无效");
       // JSON keeps every existing approval field while giving tasks their own shape.
       var data =
           db.queryForList(
@@ -97,9 +124,13 @@ class MessageController {
                   + " data,r.created_at,r.id FROM asset_requests r JOIN users u ON u.id=r.user_id"
                   + " WHERE "
                   + assets.pendingSql()
-                  + " UNION ALL SELECT to_jsonb(c)||jsonb_build_object('item_type','CONTRACT','title',c.name,'user_name',u.name) data,c.created_at,c.id FROM contracts c JOIN users u ON u.id=c.user_id WHERE "
+                  + " UNION ALL SELECT"
+                  + " to_jsonb(c)||jsonb_build_object('item_type','CONTRACT','title',c.name,'user_name',u.name)"
+                  + " data,c.created_at,c.id FROM contracts c JOIN users u ON u.id=c.user_id WHERE "
                   + contracts.pendingSql(a)
-                  + ") combined ORDER BY created_at DESC,id"
+                  + ") combined"
+                  + (itemType != null ? " WHERE data->>'item_type'='" + itemType + "'" : "")
+                  + " ORDER BY created_at DESC,id"
                   + " DESC,data->>'item_type' LIMIT 200 OFFSET ?",
               String.class,
               a.id(),

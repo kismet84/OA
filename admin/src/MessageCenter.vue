@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue';
 import { api, download, display, type Row } from './api';
+import {useMessageSummary,approvalTotal} from './messageSummary';
 import DataTable from './DataTable.vue';
-const props = defineProps<{ management?: boolean; departments: Row[]; refreshKey?: number }>();
+const props = defineProps<{ management?: boolean;pendingOnly?:boolean; departments: Row[]; refreshKey?: number }>();
 const emit = defineEmits<{ openContract: [id:number]; openAsset: [id:number]; openRequest: [row: Row]; openMeeting: [id:number]; openTask: [id:number]; openDocument: [id:number] }>();
-const categories = [ ['pending','待我审批'], ['initiated','我发起的'], ['cc','抄送我的'], ['notifications','系统通知（站内通知）'], ['announcements','公告'] ];
-const category = ref('pending'), rows = ref<Row[]>([]), summary = ref<Row>({}), offset = ref(0);
+const categories = [ ['allPending','全部待办'], ['pending','待我审批'], ['initiated','我发起的'], ['cc','抄送我的'], ['notifications','系统通知（站内通知）'], ['announcements','公告'] ];
+const {summary,refresh:refreshSummary}=useMessageSummary();
+const category = ref(props.pendingOnly?'notifications':'allPending'), rows = ref<Row[]>([]), offset = ref(0);
 const busy = ref(false), error = ref(''), editing = ref(false), detail = ref<Row | null>(null), receipts = ref<Row | null>(null);
 const title = ref(''), body = ref(''), departmentId = ref<number | null>(null), files = ref<Row[]>([]);
 const columns = (pairs: string[]) => pairs.map(p => { const [key,label]=p.split(':'); return {key:key!,label:label!}; });
@@ -15,8 +17,9 @@ async function run(action: () => Promise<void>) {
   try { await action(); } catch(e) { error.value=e instanceof Error ? e.message : '操作失败'; } finally { busy.value=false; }
 }
 async function load() {
-  summary.value=await api('/messages/summary');
-  rows.value=await api(props.management ? '/announcements?management=true&offset='+offset.value : '/messages?category='+category.value+'&offset='+offset.value);
+  await refreshSummary();
+
+  rows.value=await api(props.management ? '/announcements?management=true&offset='+offset.value : '/messages?category='+(category.value==='allPending'?'pending':category.value)+'&offset='+offset.value+(category.value==='pending'?'&itemType=REQUEST':'')+(props.pendingOnly&&category.value==='notifications'?'&unread=true':''));
 }
 async function open(row: Row) {
   await run(async () => {
@@ -29,9 +32,10 @@ async function open(row: Row) {
 async function upload(event: Event) {
   const input=event.target as HTMLInputElement;
   await run(async () => {
-    for(const file of Array.from(input.files || [])) {
+    const selected=Array.from(input.files||[]);
+    for(const [i,file] of selected.entries()) {
       if(files.value.length >= 30) throw new Error('最多上传 30 份附件');
-      const form=new FormData(); form.append('file',file);
+      const form=new FormData(); form.append('file',file);form.append('uploadIndex',String(i+1));form.append('uploadTotal',String(selected.length));
       files.value.push(await api('/attachments','POST',form));
     }
   });
@@ -58,7 +62,7 @@ watch(() => props.refreshKey, () => run(load));
   <section class="card records">
     <p v-if="error" role="alert" class="error">{{ error }}</p>
     <div class="section-toolbar">
-      <p v-if="!management">待办 {{ summary.pending || 0 }} · 未读系统通知 {{ summary.notifications || 0 }} · 未读公告 {{ summary.announcements || 0 }}</p>
+      <p v-if="!management">待审批 {{ approvalTotal(summary) }} · 待办任务 {{ summary.tasks || 0 }} · 未读系统通知 {{ summary.notifications || 0 }} · 未读公告 {{ summary.announcements || 0 }}</p>
       <p v-else>发布时保存接收人快照；撤回后员工不可见，回执继续保留。</p>
       <div class="actions"><button :disabled="busy" @click="run(load)">刷新</button><button v-if="management" class="primary" @click="editing=true">发布公告</button></div>
     </div>

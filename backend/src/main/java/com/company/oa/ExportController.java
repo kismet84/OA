@@ -90,6 +90,9 @@ class ExportController {
       @RequestParam(required = false) Long userId,
       HttpServletRequest req) {
     var q = requests.requestQuery(Auth.actor(req), status, kind, userId, false);
+    String from=req.getParameter("from"),to=req.getParameter("to");
+    try {if(from!=null&&!from.isBlank()){q=new RequestController.Query(q.sql()+" AND r.created_at>=?",q.params());q.params().add(LocalDate.parse(from).atStartOfDay());}
+    if(to!=null&&!to.isBlank()){q=new RequestController.Query(q.sql()+" AND r.created_at<?",q.params());q.params().add(LocalDate.parse(to).plusDays(1).atStartOfDay());}}catch(java.time.DateTimeException e){throw new ApiException(400,"日期格式无效");}
     return csv("requests", q, Auth.actor(req));
   }
 

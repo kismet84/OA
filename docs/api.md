@@ -647,3 +647,51 @@ Flutter `push_test.dart` 用假设备和 mock HTTP 验证权限拒绝、登记�
 ### 写事务锁隔离
 
 打卡使用 `(20261112, hashint8(userId))` 事务锁，一般审批决定/撤回使用 `(20261113, hashint8(requestId))`；同员工余额仍通过用户行锁串行。组织维护使用独立排他键 `20261114`；读取审批链、改派、公告/文档接收范围快照使用该键的共享锁，防止停用与新指派交错。共享快照之间可以并行，不会阻塞打卡。文档文件解析在开启数据库写事务及获取锁前完成，事务内重新检查附件权限和绑定；重新上架核对附件未被替换。合同与资产写操作使用既有单据行锁，发放按资产 ID 排序加锁；文档附件按 UUID 排序加锁。日程 `630206` 和访客 `110011` 保留各自独立的业务锁，不与其他业务共用。每个路径最多一把排他业务 advisory lock，无交叉命名空间反序获取。
+
+## 第二阶段优化（V14 / V15）
+
+所有业务日期、`timestamp` 打卡和半天边界按 Asia/Shanghai 解释；带时区的催办时间为 ISO 8601。原 `POST /api/punches`、消息 `pending`、既有导出和工作台字段保持兼容。
+
+### 考勤规则与日历
+
+- ADMIN `GET /api/admin/attendance-rules` 返回单行规则；`PUT` 接收 `enabled,work_start,work_end,late_grace_minutes,early_grace_minutes,workdays,effective_from`。时间如 `09:00`，工作日为 ISO 星期串 `1,2,3,4,5`，宽限 0–240 分钟，上班必须早于下班。保存写 `SAVE_ATTENDANCE_RULES` 审计。
+- ADMIN `GET /api/admin/work-calendar?year=2026`；员工可用 `GET /api/work-calendar?year=2026`。`POST /api/admin/work-calendar` 接收 `{day:"2026-10-01",kind:"HOLIDAY",name:"国庆节"}`，按日期覆盖；`DELETE /api/admin/work-calendar/{day}` 删除。
+- ADMIN `POST /api/admin/work-calendar/batch` 接收 `{text:"2026-10-01,HOLIDAY,国庆节\n2026-10-10,WORKDAY,调休上班"}`，最多400行。返回 `success,failed,rows:[{line,success,message?}]`，行号从1开始。有效行保存，错误行给中文原因。名称最多100字，类型仅 HOLIDAY/WORKDAY。所有写操作记录审计。示例仅演示格式，请以国务院办公厅当年通知为准。
+- `GET /api/attendance-policy` 保留 `correction_days,overtime_ratio,leave_threshold`，新增 `attendanceRules`，含规则启用、起始日期、上下班时间、宽限和工作日。
+- `GET /api/attendance/daily?userId=&from=YYYY-MM-DD&to=YYYY-MM-DD`：默认本人，含首尾最多366天。每行 `day,status,firstPunch,lastPunch,punches,rulesEnabled,expected,lateMinutes,earlyMinutes,missingPunch,leaveDays,field,requestIds`。状态 NORMAL 正常、LATE 迟到、EARLY 早退、LATE_EARLY 同时异常、MISSING 缺卡、LEAVE 请假、FIELD 外勤出勤、REST 休息、EXCLUDED 未纳入统计、FUTURE 未来、IN_PROGRESS 当天进行中；关闭规则时 RECORDED/PUNCHED 只展示事实。
+- `GET /api/attendance/summary?month=YYYY-MM&departmentId=&userId=`：按人返回 `user_id,employee_no,user_name,department_name,expectedDays,normalDays,lateCount,lateMinutes,earlyCount,earlyMinutes,missingCount,leaveDays,fieldDays,restDays,rulesEnabled`。权限复用工作台：员工本人、主管直属下级、部门负责人所辖树、ADMIN/FINANCE 公司范围；仅公司范围角色可传部门筛选。越权403。工作台 `attendance` 新增 `anomalies:{lateCount,earlyCount,missingCount}`，使用其选定日期与人员范围。
+
+实时判定不回写 punches：节假日免卡、补班日优先于周几。迁移当天（北京时间）之前默认未纳入；管理员可调整 effective_from。入职前不统计；因无停用时间字段，当前停用账号整个查询范围均未纳入，重新启用后可再次计算。未来不判定，当天未到应下班时间不判缺卡或早退。全天请假免卡，两份半天请假可合并；上午请假上班基准13:00，下午请假下班基准13:00。出差/外出日有任意正常或外勤卡即外勤出勤，否则缺外勤卡。普通日不足两卡记一次缺卡，单卡按离上下班哪端近判断缺另一端；两卡及以上取首末次，补卡等同有效打卡。09:05在宽限内，09:06记迟到6分钟（分钟为距离标准时间的完整分钟数，非扣除宽限后的分钟）；早退同理。应出勤含请假日和进行中的今天，正常天数不含单独列出的请假/外勤/异常。异常计数按人日，一天两端都缺也只记一次缺卡。请假只在纳入规则的非休息日计入月度规则报表，与旧工作台自然日请假事实统计并存。
+
+### 月度 CSV
+
+- ADMIN `GET /api/admin/exports/attendance-monthly.csv?month=YYYY-MM&departmentId=&detail=false`：工号、姓名、部门、应出勤、正常、迟到次数、迟到分钟、早退次数、早退分钟、缺卡次数、请假天数、外勤天数。`detail=true` 改为工号/姓名/部门/日期/状态/首次/末次/迟到分钟/早退分钟/缺卡说明/关联单号。
+- ADMIN 或 FINANCE `GET /api/admin/exports/expenses-monthly.csv?month=YYYY-MM&departmentId=&status=&basis=created`：单号、申请人、部门、提交时间、金额、明细条数、用途摘要、审批状态、支付状态、支付时间，末尾金额合计。默认按提交时间 created_at；`basis=approved` 仅取当前已批准单据、以最后一个已批准步骤的 acted_at 归月。可按审批状态筛选。
+- 原 `requests.csv` 新增可选 `from/to`，按提交日期含首尾筛选，原参数语义不变。
+- UTF-8 BOM，CRLF，所有单元格带双引号并转义；去掉前导空白后以 `= + - @` 开头或以控制换行/制表开头的单元格加单引号。超过10000行400「导出超过 10000 条，请缩小筛选范围」。新导出记录 `EXPORT_ATTENDANCE_MONTHLY` / `EXPORT_EXPENSES_MONTHLY` 审计；无数据仍有表头，报销仍有合计。
+
+### 审批催办
+
+- `POST /api/requests/{id}/urge`、`POST /api/contracts/{id}/urge`、`POST /api/assets/requests/{id}/urge`。仅发起人本人且单据 PENDING；越权403「仅发起人本人可催办」，已办结400。返回 `{message:"已催办 张三",urgedUserIds:[1],nextAvailableAt:"..."}`。各详情增加 `canUrge,lastUrgedAt,urgeAvailableAt`（冷却中 canUrge 仍表示发起人资格，客户端按可用时间禁用按钮）。
+- 对当前步骤与当前改派审批人发通知，跳过停用者；合同/资产角色终审的空 approver_id 展开为在职 FINANCE/ADMIN，并排除发起人。无人可通知400「当前没有在职审批人，请联系管理员改派」。同一业务单据、版本、步骤、审批人默认120分钟内再次催办429「已于 HH:mm 催办过，请 X 分钟后再试」。同单据行锁串行处理并与审批/改派互斥，通知与催办记录同事务。
+- ADMIN `GET/PUT /api/admin/urge-config`，字段 `urge_cooldown_minutes`（1–10080）、`auto_urge_enabled`、`auto_urge_hours`（1–8760，默认24）、`auto_urge_repeat_hours`（0–8760，默认0不重复）。写 `SAVE_URGE_CONFIG` 审计，既有审批阈值不变。
+- 每10分钟北京时间巡检；提交/步骤推进/改派在数据库同事务更新 activated_at。迁移按单据创建、上一步处理和最近改派时间安全回填。全局事务 advisory lock 防多实例重复；按业务、版本、步骤、审批人、activated_at 激活周期查询 AUTO 记录去重。配置重复间隔大于0时距离上次自动催办达到间隔再发送。手动和自动记录均参与手动冷却。已办结/撤回不发，停用审批人不发，不额外通知发起人。
+- 所有催办仅调用现有 NotificationService.write，写消息中心并发布 Created → PushDelivery → Android FCM。真实设备到达仍需部署和有效FCM凭据。
+
+### 常用模板与复制
+
+本人 `GET /api/request-templates?kind=`；`POST /api/request-templates`、`PUT /api/request-templates/{id}` 接收 `{name,kind,payload}`，`DELETE /api/request-templates/{id}`。仅 LEAVE/TRAVEL/OUTING/EXPENSE；名称最多60字、本人唯一、每人最多30个，冲突或上限400中文提示，跨用户403。写操作审计。payload白名单：typeId、reason、items[{description,amount}]、ccUserIds、amount、startTime/endTime半天选项、durationDays；具体日期、附件、审批字段全部丢弃。模板列表读取也剔除后来停用的假种/抄送人并返回 warnings。
+
+`GET /api/requests/{id}/copy` 仅发起人403限制，返回 `{kind,payload,warnings}`；不返回具体日期、附件、状态和审批记录，停用假种/抄送人剔除并提示。客户端必须重新选日期，最终提交仍通过原申请接口完整校验。加班/补卡暂不支持模板或复制（400）。
+
+### 拆分计数与附件
+
+`GET /api/messages/summary` 保留原 pending（通用审批+合同审批+资产审批+本人未完成任务），新增 `approvalsRequests,approvalsContracts,approvalsAssets,tasks,payments`。payments 仅ADMIN/FINANCE可见当前已批准未支付报销数量，其他为0。审批与各业务待办过滤共用口径，合同含空审批人的角色终审；notifications/announcements不变。`GET /api/messages?category=pending&itemType=REQUEST` 可只看通用申请；itemType也支持CONTRACT/ASSET/TASK，不传仍返回原混合列表。`category=notifications&unread=true` 仅未读。`GET /api/tasks?scope=assigned&status=ACTIVE` 精确对应 tasks 计数（TODO/IN_PROGRESS）。网页「全部待办」保留混合入口，「待我审批」为通用申请列表。
+
+网页导航数字0隐藏、超过99显示99+，点击数字进入对应待审或未读子列表。消息中心导航显示未读系统通知数（公告另列）；合计展示拆为待审批与待办任务。登录、导航、业务写操作成功、焦点/可见恢复刷新，每60秒刷新，隐藏页面暂停。
+
+所有网页附件上传共用压缩：仅JPEG/PNG，超过1.5MB或长边超过2560px时等比缩至最长边2560，JPEG质量0.82，超过2MB依次降至0.74/0.66/0.60；透明PNG铺白底。若结果更大保留原文件。扩展名与实际MIME一致。小图片/PDF字节不变；压缩后再校验10MB「每份最多 10MB」。Flutter使用纯Dart image包、compute后台isolate实现相同策略，无新增平台配置。服务端10MB和魔数校验保持不变。
+
+### 仅 dev 的验收辅助
+
+原模拟打卡 `/api/admin/dev/punch` 新增可选 `at`（北京时间、不允许未来）；仅 dev ADMIN，可以构造历史测试卡；不影响员工打卡。`POST /api/admin/dev/run-auto-urge` 无body执行当前巡检；可传 `{requestId,now:"ISO时刻"}` 仅对指定测试申请用模拟时刻巡检，便于验证24小时边界和去重，生产profile无此接口。

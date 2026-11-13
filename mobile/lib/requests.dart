@@ -2,6 +2,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import 'api.dart';
+import 'urge_button.dart';
 import 'ui.dart';
 import 'validation.dart';
 
@@ -16,10 +17,12 @@ class ExpenseLine {
 class RequestFormPage extends StatefulWidget {
   final Api api;
   final String initialKind;
+  final Json? initialDraft;
   const RequestFormPage({
     super.key,
     required this.api,
     this.initialKind = 'LEAVE',
+    this.initialDraft,
   });
   @override
   State<RequestFormPage> createState() => _RequestFormState();
@@ -44,6 +47,9 @@ class _RequestFormState extends State<RequestFormPage>
       end = start;
   String startTime = '09:00', endTime = '18:00';
   bool ready = false;
+  List<Json> templates = [];
+  String? draftNotice;
+  bool startChosen = true, endChosen = true;
   @override
   void initState() {
     super.initState();
@@ -56,8 +62,185 @@ class _RequestFormState extends State<RequestFormPage>
     types = records(await widget.api.call('/leave-types'));
     colleagues = records(await widget.api.call('/colleagues'));
     typeId = types.isEmpty ? null : types.first['id'];
+    templates = records(await widget.api.call('/request-templates'));
+    if (widget.initialDraft != null) {
+      fillDraft(widget.initialDraft!);
+    }
     ready = true;
   });
+  void fillDraft(Json draft) {
+    final p = draft['payload'] is Map
+        ? Map<String, dynamic>.from(draft['payload'] as Map)
+        : draft;
+    kind = '${draft['kind'] ?? kind}';
+    typeId = p['typeId'] as int?;
+    reason.text = '${p['reason'] ?? ''}';
+    amount.text = '${p['amount'] ?? ''}';
+    startTime = '${p['startTime'] ?? '09:00'}';
+    endTime = '${p['endTime'] ?? '18:00'}';
+    if (p['correctionAt'] != null) {
+      correctionAt = DateTime.parse('${p['correctionAt']}');
+    }
+    punchKind = '${p['punchKind'] ?? 'NORMAL'}';
+    cc.clear();
+    cc.addAll((p['ccUserIds'] as List? ?? []).cast<int>());
+    for (final l in lines) {
+      l.dispose();
+    }
+    lines.clear();
+    for (final item in (p['items'] as List? ?? [])) {
+      final l = ExpenseLine();
+      l.description.text = '${item['description']}';
+      l.amount.text = '${item['amount']}';
+      lines.add(l);
+    }
+    if (lines.isEmpty) lines.add(ExpenseLine());
+    files.clear();
+    startChosen = false;
+    endChosen = false;
+    final warnings = (draft['warnings'] as List? ?? [])
+        .where((w) => w != '请重新选择日期，附件不会复制')
+        .join('；');
+    draftNotice = '请重新选择日期，附件不会复制${warnings.isEmpty ? '' : '；$warnings'}';
+  }
+
+  Future<String?> templateName([String initial = '']) async {
+    String edited = initial;
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('模板名称'),
+        content: TextFormField(
+          initialValue: initial,
+          onChanged: (value) => edited = value,
+          maxLength: 60,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, edited.trim()),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    return result;
+  }
+
+  Future<void> saveTemplate() => run(() async {
+    final name = await templateName();
+    if (name == null) return;
+    if (name.isEmpty) throw ApiError('请填写模板名称');
+    await widget.api.call(
+      '/request-templates',
+      method: 'POST',
+      data: {
+        'name': name,
+        'kind': kind,
+        'payload': {
+          'typeId': typeId,
+          'reason': reason.text,
+          'amount': double.tryParse(amount.text) ?? 0,
+          'items': [
+            for (final l in lines)
+              {
+                'description': l.description.text,
+                'amount': double.tryParse(l.amount.text) ?? 0,
+              },
+          ],
+          'ccUserIds': cc.toList(),
+          'startTime': startTime,
+          'endTime': endTime,
+          'durationDays':
+              end.difference(start).inDays +
+              (endTime == '18:00' ? 1 : 0.5) -
+              (startTime == '13:00' ? 0.5 : 0),
+        },
+      },
+    );
+    templates = records(await widget.api.call('/request-templates'));
+  }, success: '模板已保存');
+  Future<void> chooseTemplate() async {
+    final selected = await showModalBottomSheet<Json>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const ListTile(title: Text('从模板填单')),
+            if (templates.isEmpty) const ListTile(title: Text('暂无常用模板')),
+            for (final t in templates)
+              ListTile(
+                title: Text('${t['name']}（${textOf(t['kind'])}）'),
+                onTap: () => Navigator.pop(ctx, t),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (selected != null && mounted) setState(() => fillDraft(selected));
+  }
+
+  Future<void> manageTemplates() async {
+    final selected = await showModalBottomSheet<Json>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const ListTile(title: Text('选择要管理的模板')),
+            for (final t in templates)
+              ListTile(
+                title: Text('${t['name']}'),
+                onTap: () => Navigator.pop(ctx, t),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (selected == null || !mounted) return;
+    final action = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('${selected['name']}'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'rename'),
+            child: const Text('重命名'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'delete'),
+            child: const Text('删除模板'),
+          ),
+        ],
+      ),
+    );
+    if (action == null || !mounted) return;
+    String? name;
+    if (action == 'rename') {
+      name = await templateName('${selected['name']}');
+      if (name == null) return;
+    }
+    await run(() async {
+      await widget.api.call(
+        '/request-templates/${selected['id']}',
+        method: action == 'delete' ? 'DELETE' : 'PUT',
+        data: action == 'delete'
+            ? null
+            : {
+                'name': name,
+                'kind': selected['kind'],
+                'payload': selected['payload'],
+              },
+      );
+      templates = records(await widget.api.call('/request-templates'));
+    });
+  }
+
   @override
   void dispose() {
     reason.dispose();
@@ -81,8 +264,10 @@ class _RequestFormState extends State<RequestFormPage>
       setState(() {
         if (first) {
           start = d;
+          startChosen = true;
         } else {
           end = d;
+          endChosen = true;
         }
       });
     }
@@ -125,13 +310,18 @@ class _RequestFormState extends State<RequestFormPage>
     if (kind == 'EXPENSE' && files.length + result.length > 30) {
       throw ApiError('票据最多30张');
     }
-    for (final f in result) {
+    for (final (i, f) in result.indexed) {
       final size = await f.length();
-      if (size == null || size > 10 * 1024 * 1024 || size == 0) {
+      if (size == null || size == 0) {
         throw ApiError('每份附件须为1字节至10MB');
       }
       final bytes = await f.readAsBytes();
-      final id = await widget.api.upload(f.name, bytes);
+      final id = await widget.api.upload(
+        f.name,
+        bytes,
+        index: i + 1,
+        total: result.length,
+      );
       if (!mounted) return;
       setState(() {
         if (kind != 'EXPENSE') files.clear();
@@ -191,6 +381,10 @@ class _RequestFormState extends State<RequestFormPage>
   }
 
   Future<void> submit() => run(() async {
+    if (!['EXPENSE', 'CORRECTION'].contains(kind) &&
+        (!startChosen || !endChosen)) {
+      throw ApiError('请重新选择开始和结束日期');
+    }
     final type = types.where((t) => t['id'] == typeId).firstOrNull;
     final payload = requestPayload(
       kind: kind,
@@ -231,10 +425,37 @@ class _RequestFormState extends State<RequestFormPage>
         padding: const EdgeInsets.all(20),
         children: [
           feedback,
+          if (draftNotice != null)
+            Text(
+              draftNotice!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          Wrap(
+            spacing: 8,
+            children: [
+              OutlinedButton(
+                onPressed: busy ? null : chooseTemplate,
+                child: const Text('从模板填单'),
+              ),
+              OutlinedButton(
+                onPressed:
+                    busy ||
+                        !['LEAVE', 'TRAVEL', 'OUTING', 'EXPENSE'].contains(kind)
+                    ? null
+                    : saveTemplate,
+                child: const Text('保存为常用模板'),
+              ),
+              TextButton(
+                onPressed: busy ? null : manageTemplates,
+                child: const Text('模板管理'),
+              ),
+            ],
+          ),
           if (!ready && !busy)
             TextButton(onPressed: load, child: const Text('重新加载假期与同事')),
           DropdownButtonFormField<String>(
             initialValue: kind,
+            key: ValueKey(kind),
             decoration: const InputDecoration(labelText: '申请类型'),
             items: [
               for (final k in [
@@ -486,6 +707,38 @@ class _DetailState extends State<RequestDetailPage>
       children: [
         feedback,
         if (detail != null) ...[
+          UrgeButton(
+            api: widget.api,
+            detail: detail!,
+            path: '/requests/${widget.id}',
+            onDone: load,
+          ),
+          if (own &&
+              [
+                'LEAVE',
+                'TRAVEL',
+                'OUTING',
+                'EXPENSE',
+              ].contains(detail!['kind']))
+            OutlinedButton(
+              onPressed: busy
+                  ? null
+                  : () => run(() async {
+                      final draft = await widget.api.call(
+                        '/requests/${widget.id}/copy',
+                      ) as Json;
+                      if (!mounted || !context.mounted) return;
+                      await go(
+                        context,
+                        RequestFormPage(
+                          api: widget.api,
+                          initialKind: '${draft['kind']}',
+                          initialDraft: draft,
+                        ),
+                      );
+                    }),
+              child: const Text('复制再发起'),
+            ),
           Text(
             '${textOf(detail!['kind'])} · ${textOf(detail!['status'])}',
             style: Theme.of(context).textTheme.headlineSmall,

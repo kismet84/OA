@@ -3,6 +3,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 
 import 'api.dart';
+import 'attendance.dart';
 import 'punch_location.dart';
 import 'ui.dart';
 import 'validation.dart';
@@ -75,6 +76,11 @@ class _HomeState extends State<HomePage> with Guard<HomePage> {
           ),
           const SizedBox(height: 8),
           const Text('日常办公，随时处理。业务时间：北京时间'),
+          OutlinedButton(
+            onPressed: () =>
+                open(AttendancePage(api: widget.api, user: widget.user)),
+            child: const Text('我的本月考勤'),
+          ),
           feedback,
           Card(
             child: Padding(
@@ -84,7 +90,10 @@ class _HomeState extends State<HomePage> with Guard<HomePage> {
                 runSpacing: 16,
                 children: [
                   for (final key in [
-                    'pending',
+                    'approvalsRequests',
+                    'approvalsContracts',
+                    'approvalsAssets',
+                    'tasks',
                     'notifications',
                     'announcements',
                   ])
@@ -93,7 +102,15 @@ class _HomeState extends State<HomePage> with Guard<HomePage> {
                         MessagePage(
                           api: widget.api,
                           user: widget.user,
-                          initial: key,
+                          itemType: const {
+                            'approvalsRequests': 'REQUEST',
+                            'approvalsContracts': 'CONTRACT',
+                            'approvalsAssets': 'ASSET',
+                            'tasks': 'TASK',
+                          }[key],
+                          initial: key.startsWith('approvals') || key == 'tasks'
+                              ? 'pending'
+                              : key,
                         ),
                       ),
                       child: Column(
@@ -104,8 +121,14 @@ class _HomeState extends State<HomePage> with Guard<HomePage> {
                             style: Theme.of(context).textTheme.headlineMedium,
                           ),
                           Text(
-                            key == 'pending'
-                                ? '待我审批'
+                            key == 'approvalsRequests'
+                                ? '申请待审批'
+                                : key == 'approvalsContracts'
+                                ? '合同待审批'
+                                : key == 'approvalsAssets'
+                                ? '资产待审批'
+                                : key == 'tasks'
+                                ? '待办任务'
                                 : key == 'notifications'
                                 ? '未读通知'
                                 : '未读公告',
@@ -355,12 +378,14 @@ class MessagePage extends StatefulWidget {
   final Json user;
   final String initial;
   final bool approval;
+  final String? itemType;
   const MessagePage({
     super.key,
     required this.api,
     required this.user,
     this.initial = 'notifications',
     this.approval = false,
+    this.itemType,
   });
   @override
   State<MessagePage> createState() => _MessageState();
@@ -381,7 +406,9 @@ class _MessageState extends State<MessagePage> with Guard<MessagePage> {
 
   Future<void> load() => run(() async {
     final data = records(
-      await widget.api.call('/messages?category=$category&offset=$offset'),
+      await widget.api.call(
+        '/messages?category=$category&offset=$offset${category == 'pending' && widget.itemType != null ? '&itemType=${widget.itemType}' : ''}',
+      ),
     );
     if (mounted) setState(() => rows = data);
   });

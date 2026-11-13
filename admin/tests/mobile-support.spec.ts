@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test('管理员维护职务工作电话并查看和退出员工设备', async ({ page, request }) => {
   const login = await request.post('/api/auth/login', { data: { login: 'admin', password: process.env.OA_ADMIN_PASSWORD || 'Admin@2026Verified' } });

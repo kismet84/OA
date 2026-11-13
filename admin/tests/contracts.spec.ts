@@ -1,4 +1,4 @@
-import {test,expect,type Page} from '@playwright/test';
+import {test,expect,type Page} from './fixtures';
 test('合同员工起草、驳回重提、超阈值三级审批、归档及管理筛选导出',async({page,request,browser})=>{
  test.setTimeout(150000);
  const errors:string[]=[];
@@ -18,11 +18,11 @@ test('合同员工起草、驳回重提、超阈值三级审批、归档及管�
  await btn(employee,'登记合同').click();await dialog(employee).getByLabel('合同名称',{exact:true}).fill(stamp);await dialog(employee).getByLabel('对方单位',{exact:true}).fill(stamp);await dialog(employee).getByLabel('金额（元，无固定金额可留空）').fill('60000');await dialog(employee).getByLabel('签订日期',{exact:true}).fill('2032-01-01');await dialog(employee).getByLabel('生效日期',{exact:true}).fill('2032-01-01');await btn(employee,'保存草稿').click();await expect(dialog(employee)).toContainText('草稿');await btn(employee,'提交合同审批').click();await expect(dialog(employee)).toContainText('审批中');await close(employee);
  const id=(await call('/contracts?scope=mine','GET',undefined,owner.token))[0].id;
  await call('/requests','POST',{kind:'OUTING',startAt:'2032-03-01T09:00:00',endAt:'2032-03-01T18:00:00',reason:'保留审批'},owner.token);await call('/tasks','POST',{title:'保留原任务'+stamp,assigneeIds:[manager.id]},owner.token);
- await login(page,manager.login);await nav(page,'消息中心');await expect(page.getByText('待办 3 ·',{exact:false})).toBeVisible();await expect(page.getByRole('row').filter({hasText:'保留原任务'})).toBeVisible();
+ await login(page,manager.login);await nav(page,'消息中心');await expect(page.getByText('待审批 2 · 待办任务 1 ·',{exact:false})).toBeVisible();await expect(page.getByRole('row').filter({hasText:'保留原任务'})).toBeVisible();
  await page.getByRole('row').filter({hasText:stamp}).filter({has:btn(page,'处理合同')}).getByRole('button',{name:'处理合同'}).click();await dialog(page).getByLabel('处理说明（驳回或终止必填）').fill('请补充履约说明');await btn(page,'驳回合同').click();await expect(dialog(page)).toContainText('已驳回');await close(page);
  await btn(employee,'刷新合同').click();await employee.getByRole('row').filter({hasText:stamp}).getByRole('button',{name:'查看合同'}).click();await btn(employee,'修改合同').click();await dialog(employee).getByLabel('付款或履约说明').fill('按月提供服务');await btn(employee,'保存并提交合同').click();await expect(dialog(employee)).toContainText('审批中');await close(employee);
  await nav(page,'消息中心');await page.getByRole('row').filter({has:btn(page,'处理合同')}).getByRole('button',{name:'处理合同'}).click();await btn(page,'同意合同').click();await expect(dialog(page)).toContainText('通过');
- await close(page);await nav(page,'消息中心');await expect(page.getByText('待办 2 ·',{exact:false})).toBeVisible();
+ await close(page);await nav(page,'消息中心');await expect(page.getByText('待审批 1 · 待办任务 1 ·',{exact:false})).toBeVisible();
  for(const person of [head,finance]){await page.evaluate(()=>sessionStorage.clear());await login(page,person.login);await nav(page,'消息中心');await page.getByRole('row').filter({has:btn(page,'处理合同')}).getByRole('button',{name:'处理合同'}).click();await btn(page,'同意合同').click();await expect(dialog(page)).toContainText(person===finance?'待归档':'审批中');await close(page)}
  await btn(employee,'刷新合同').click();await employee.getByRole('row').filter({hasText:stamp}).getByRole('button',{name:'查看合同'}).click();await dialog(employee).getByLabel('上传盖章版（多份，每份≤10MB）').setInputFiles({name:'sealed.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.4\ncontract scan')});await expect(btn(employee,'归档合同')).toBeEnabled();await btn(employee,'归档合同').click();await expect(dialog(employee)).toContainText('履行中');await expect(dialog(employee)).toContainText('盖章版');await close(employee);
  await employee.screenshot({path:'/tmp/oa-contracts-staff.png',fullPage:true});expect(await employee.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();

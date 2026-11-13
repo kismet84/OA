@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/assets")
 class AssetController {
+  @org.springframework.beans.factory.annotation.Autowired ApprovalUrgeService urges;
   @org.springframework.beans.factory.annotation.Autowired
   NotificationService notifications;
   final JdbcTemplate db;
@@ -435,6 +436,7 @@ class AssetController {
         r.get("status").equals("PENDING") && Objects.equals(r.get("approver_id"), a.id()));
     r.put("reassignments", db.queryForList("SELECT h.*,u.name previous_approver_name,v.name approver_name,a.name actor_name FROM approval_reassignments h LEFT JOIN users u ON u.id=h.previous_approver_id JOIN users v ON v.id=h.approver_id JOIN users a ON a.id=h.actor_id WHERE business='ASSET' AND target_id=? ORDER BY h.id",id));
     if(r.get("approval_actor_id")!=null) r.put("approval_actor_name",db.queryForObject("SELECT name FROM users WHERE id=?",String.class,r.get("approval_actor_id")));
+    r.putAll(urges.metadata("ASSET",id,a));
     r.put("canManage", manages(a));
     r.put("isOwner", number(r, "user_id") == a.id());
     return r;

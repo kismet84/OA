@@ -1,10 +1,19 @@
 <script setup lang="ts">
+import AttendanceMonthly from './AttendanceMonthly.vue';
 import { onMounted, reactive, ref } from 'vue';
-import { api, type Row } from './api';
+import { api, download, type Row } from './api';
+import {useMessageSummary,approvalTotal} from './messageSummary';
 import DataTable from './DataTable.vue';
 const props=defineProps<{company?:boolean}>();
+const {summary:messages}=useMessageSummary();
+const showAttendance=ref(false),actor=ref<any>(null);
+const currentMonth=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit'}).format(new Date());
+const [yy,mm]=currentMonth.split('-').map(Number);const lastDay=new Date(yy!,mm!,0).getDate();
+const exports=[['本月考勤汇总','/admin/exports/attendance-monthly.csv?month='+currentMonth],['本月报销汇总','/admin/exports/expenses-monthly.csv?month='+currentMonth],['本月审批单据','/admin/exports/requests.csv?from='+currentMonth+'-01&to='+currentMonth+'-'+lastDay],['合同台账','/contracts/export']];
+async function exportFile(path:string,title:string){try{await download(path,title+'.csv')}catch(e){error.value=e instanceof Error?e.message:'导出失败'}}
+onMounted(async()=>{try{actor.value=(await api('/auth/me')).user}catch{}});
 const visitors=ref<Row|null>(null);
-const data=ref<Row|null>(null), messages=ref<Row|null>(null), error=ref(''), busy=ref(false);
+const data=ref<Row|null>(null), error=ref(''), busy=ref(false);
 const filters=reactive({from:'',to:'',scope:props.company?'team':'self',departmentId:''});
 async function load(){
   busy.value=true;error.value='';
@@ -14,7 +23,7 @@ async function load(){
     const result=await api('/workbench/summary?'+q);
     members.value=[]; records.value=null; selected.value=''; offset.value=0;
     data.value=result;filters.from=result.from;filters.to=result.to;
-    messages.value=await api('/messages/summary');
+
     visitors.value=await api('/visitors/summary');
   }catch(e){data.value=null;error.value=e instanceof Error?e.message:'汇总加载失败'}finally{busy.value=false}
 }
@@ -35,7 +44,7 @@ const cols=(pairs:string[])=>pairs.map(p=>{const [key,label]=p.split(':');return
 <section class="card workbench" aria-label="考勤与审批汇总">
   <h2>考勤与审批汇总</h2>
   <p v-if="visitors">今日预约 {{visitors.todayReservations}} · 当前在场 {{visitors.present}}（按访客可见范围）</p>
-  <p v-if="messages">待办 {{ messages.pending }} · 未读通知 {{ messages.notifications }} · 未读公告 {{ messages.announcements }}</p>
+  <p v-if="messages">待审批 {{ approvalTotal(messages) }} · 待办任务 {{messages.tasks||0}} · 未读通知 {{ messages.notifications }} · 未读公告 {{ messages.announcements }}</p>
   <form class="filters" @submit.prevent="load">
     <label>汇总开始日期<input v-model="filters.from" type="date" required /></label>
     <label>汇总结束日期<input v-model="filters.to" type="date" required /></label>
@@ -57,6 +66,9 @@ const cols=(pairs:string[])=>pairs.map(p=>{const [key,label]=p.split(':');return
       <DataTable v-if="records" :rows="records" :columns="cols(['punched_at:打卡时间（北京时间）','kind:类型','correction_request_id:补卡单号'])" />
       <template v-if="records"><button :disabled="!recordOffset" @click="recordOffset-=200;punches()">上一页记录</button><button :disabled="records.length<200" @click="recordOffset+=200;punches()">下一页记录</button></template>
     </details>
+    <div class="card"><h3>考勤异常</h3><p>迟到 {{data.attendance.anomalies?.lateCount||0}} · 早退 {{data.attendance.anomalies?.earlyCount||0}} · 缺卡 {{data.attendance.anomalies?.missingCount||0}}</p><button @click="showAttendance=!showAttendance">查看考勤异常明细</button></div>
+    <AttendanceMonthly v-if="showAttendance" :me="actor" :self="filters.scope==='self'" />
+    <section v-if="company" class="card"><h3>快捷导出</h3><button v-for="[title,path] in exports" :key="title" @click="exportFile(path!,title!)">{{title}}</button></section>
     <h3>审批时效</h3>
     <p>当前待我审批 {{ data.approvals.pendingForMe }} · {{ data.scope==='self'?'我发起尚未办结':'范围内发起尚未办结' }} {{ data.approvals.initiatedPending }}</p>
     <p>统计期办结 {{ data.approvals.completed }} · 平均审批耗时 {{ data.approvals.averageHours }} 小时</p>

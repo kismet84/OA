@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api")
 class RequestController {
+  @org.springframework.beans.factory.annotation.Autowired ApprovalUrgeService urges;
   final JdbcTemplate db;
   final WorkflowService workflow;
 
@@ -42,7 +43,8 @@ class RequestController {
 
   @GetMapping("/attendance-policy")
   Object attendancePolicy() {
-    return db.queryForMap("SELECT correction_days,overtime_ratio,leave_threshold FROM workflow_config WHERE id=1");
+    var policy=db.queryForMap("SELECT correction_days,overtime_ratio,leave_threshold FROM workflow_config WHERE id=1");
+    policy.put("attendanceRules",db.queryForMap("SELECT enabled,work_start::text,work_end::text,late_grace_minutes,early_grace_minutes,array_to_string(workdays,',') workdays,effective_from FROM attendance_rules WHERE id=1"));return policy;
   }
 
   @GetMapping("/balance-history")
@@ -125,6 +127,7 @@ class RequestController {
     r.put("attachments", db.queryForList("SELECT a.id,a.original_name,a.media_type FROM expense_attachments e JOIN attachments a ON a.id=e.attachment_id WHERE e.request_id=? ORDER BY e.line_no", id));
     r.put("reassignments",db.queryForList("SELECT h.*,u.name previous_approver_name,v.name approver_name,a.name actor_name FROM approval_reassignments h LEFT JOIN users u ON u.id=h.previous_approver_id JOIN users v ON v.id=h.approver_id JOIN users a ON a.id=h.actor_id WHERE business='REQUEST' AND target_id=? ORDER BY h.id",id));
     r.put("payment_history", db.queryForList("SELECT h.*,u.name actor_name FROM expense_payment_history h JOIN users u ON u.id=h.actor_id WHERE request_id=? ORDER BY h.id", id));
+    r.putAll(urges.metadata("REQUEST",id,Auth.actor(req)));
     return r;
   }
 

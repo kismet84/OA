@@ -1,4 +1,4 @@
-import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
+import { test, expect, type APIRequestContext, type Page } from './fixtures';
 
 test.use({ locale: 'zh-CN', timezoneId: 'America/New_York' });
 async function fixture(request: APIRequestContext) {
@@ -67,7 +67,7 @@ test('员工创建指派、审批任务混排、通知详情、跟进完成后�
   guest.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   await login(guest, f.guest.no);
   await guest.locator('nav').getByRole('button', { name: '消息中心', exact: true }).click();
-  await expect(guest.getByText('待办 2 ·', { exact: false })).toBeVisible();
+  await expect(guest.getByText('待审批 1 · 待办任务 1 ·', { exact: false })).toBeVisible();
   const taskRow = guest.getByRole('row').filter({ hasText: title });
   await expect(taskRow).toContainText('任务');
   const approval = guest.getByRole('row').filter({ hasText: '审批单' });
@@ -92,7 +92,7 @@ test('员工创建指派、审批任务混排、通知详情、跟进完成后�
   await guest.screenshot({ path: '/tmp/oa-tasks-completed-mobile.png', fullPage: true });
   await gd.getByRole('button', { name: '关闭任务', exact: true }).click();
   await guest.locator('nav').getByRole('button', { name: '消息中心', exact: true }).click();
-  await expect(guest.getByText('待办 1 ·', { exact: false })).toBeVisible();
+  await expect(guest.getByText('待审批 1 · 待办任务 0 ·', { exact: false })).toBeVisible();
   await expect(guest.getByRole('row').filter({ hasText: title })).toHaveCount(0);
   await expect(guest.getByRole('row').filter({ hasText: '审批单' })).toHaveCount(1);
   await guest.getByRole('tab', { name: '系统通知（站内通知）', exact: true }).click();

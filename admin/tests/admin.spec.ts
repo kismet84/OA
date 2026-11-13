@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test('管理员通过中文页面维护组织、账号、审批并核对打卡', async ({ page }) => {
   const suffix = Date.now().toString().slice(-9);

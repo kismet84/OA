@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 let restore: { headers: Record<string, string>, data: Record<string, any> } | undefined;
 test.afterEach(async ({ request }) => {

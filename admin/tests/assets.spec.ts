@@ -1,4 +1,4 @@
-import {test,expect,type Page} from '@playwright/test';
+import {test,expect,type Page} from './fixtures';
 test.use({locale:'zh-CN',timezoneId:'America/New_York'});
 test('资产台账、员工申请、上级待办审批、行政发放、员工归还确认和消耗品扣库存',async({page,request,browser})=>{
  test.setTimeout(120000);
@@ -43,7 +43,7 @@ test('资产台账、员工申请、上级待办审批、行政发放、员工�
  const ledger=await call('/assets','GET',undefined,at);const aid=ledger.find((a:any)=>a.code===code).id;const stockId=ledger.find((a:any)=>a.name==='鼠标'+stamp).id;
  await row(page,stockId).getByRole('button',{name:'调整库存或状态'}).click();await dialog(page).getByLabel('库存增减数量（入库正数，调减负数）').fill('5');await dialog(page).getByLabel('调整原因').fill('初次入库');await btn(page,'保存资产信息').click();await expect(dialog(page)).toHaveCount(0);
  const employeeCtx=await browser.newContext({viewport:{width:390,height:844},timezoneId:'America/Los_Angeles'});const employee=await employeeCtx.newPage();watch(employee);await login(employee,owner.login);
- await expect(employee.getByText(/待办 \d+ · 未读通知/)).toBeVisible();await nav(employee,'资产领用');
+ await expect(employee.getByText(/待审批 \d+ · 待办任务 \d+ · 未读通知/)).toBeVisible();await nav(employee,'资产领用');
  const apply=async(consumable:boolean)=>{
   await btn(employee,'发起领用').click();await employee.getByLabel('可申请资产').selectOption((consumable?'CONSUMABLE:':'ITEM:')+(consumable?stockId:cid));await employee.getByLabel('数量',{exact:true}).fill(consumable?'2':'1');await employee.getByLabel('用途',{exact:true}).fill('网页验收'+stamp);await employee.getByLabel('期望领用日期',{exact:true}).fill('2032-03-01');await btn(employee,'提交领用申请').click();await expect(dialog(employee)).toBeVisible();
   const records=await call('/assets/requests','GET',undefined,owner.token);const id=records[0].id;await close(employee);return id;
@@ -52,8 +52,8 @@ test('资产台账、员工申请、上级待办审批、行政发放、员工�
  // The original approval and task stay in the same pending list.
  await call('/requests','POST',{kind:'OUTING',startAt:'2032-03-01T09:00:00',endAt:'2032-03-01T18:00:00',reason:'保留审批'},owner.token);
  await call('/tasks','POST',{title:'保留原任务'+stamp,assigneeIds:[manager.id]},owner.token);
- const managerCtx=await browser.newContext();const supervisor=await managerCtx.newPage();watch(supervisor);await login(supervisor,manager.login);await nav(supervisor,'消息中心');await expect(supervisor.getByText('待办 3 ·',{exact:false})).toBeVisible();await expect(supervisor.getByRole('row').filter({hasText:'保留原任务'})).toBeVisible();await expect(supervisor.getByRole('row').filter({hasText:'审批单'})).toBeVisible();
- await supervisor.getByRole('row').filter({hasText:'资产领用'}).getByRole('button',{name:'处理资产领用'}).click();await btn(supervisor,'同意领用').click();await expect(dialog(supervisor)).toHaveCount(0);await nav(supervisor,'消息中心');await expect(supervisor.getByText('待办 2 ·',{exact:false})).toBeVisible();
+ const managerCtx=await browser.newContext();const supervisor=await managerCtx.newPage();watch(supervisor);await login(supervisor,manager.login);await nav(supervisor,'消息中心');await expect(supervisor.getByText('待审批 2 · 待办任务 1 ·',{exact:false})).toBeVisible();await expect(supervisor.getByRole('row').filter({hasText:'保留原任务'})).toBeVisible();await expect(supervisor.getByRole('row').filter({hasText:'审批单'})).toBeVisible();
+ await supervisor.getByRole('row').filter({hasText:'资产领用'}).getByRole('button',{name:'处理资产领用'}).click();await btn(supervisor,'同意领用').click();await expect(dialog(supervisor)).toHaveCount(0);await nav(supervisor,'消息中心');await expect(supervisor.getByText('待审批 1 · 待办任务 1 ·',{exact:false})).toBeVisible();
  const issue=async(id:number,item:boolean)=>{
   await btn(page,'资产待办').click();await row(page,id).getByRole('button',{name:'查看领用'}).click();
   if(item)await dialog(page).getByRole('checkbox',{name:code+' · 办公电脑'+stamp,exact:true}).check();

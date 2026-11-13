@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { api, display, setToken, type Actor, type Row } from './api';
+import AttendanceMonthly from './AttendanceMonthly.vue';
+import {useMessageSummary,approvalTotal} from './messageSummary';
+import {uploadStatus} from './upload';
 import DataTable from './DataTable.vue';
 import MessageCenter from './MessageCenter.vue';
 import StaffRequest from './StaffRequest.vue';
@@ -16,6 +19,9 @@ import Workbench from './Workbench.vue';
 const documentId = ref<number|null>(null);
 const taskId = ref<number|null>(null);
 const me = ref<Actor | null>(null), ready = ref(false), busy = ref(false), error = ref(''), message = ref('');
+const {summary:counts,refresh:refreshCounts}=useMessageSummary(computed(()=>!!me.value&&!me.value.mustChange));
+const draft=ref<Row>();
+function copyDraft(value:Row){draft.value=value;detailId.value=null;page.value='apply';revision.value++}
 const page = ref('apply'), passwordOpen = ref(false), detailId = ref<number | null>(null), revision = ref(0);
 const meetingId = ref<number | null>(null);
 const nav = [['visitors','访客管理'],['contracts','合同管理'],['assets','资产领用'],['documents','文档资料'],['tasks','待办任务'],['calendar','日程与会议'],['apply','提交申请'],['messages','消息中心'],['directory','通讯录'],['punches','打卡记录'],['profile','个人中心']];
@@ -59,6 +65,7 @@ async function load() {
   }
 }
 async function navigate(key: string) {
+  await refreshCounts();
   if (key === 'contracts') contractId.value=null;
   if (key === 'assets') assetRequestId.value = null;
   await run(async () => { page.value = key; rows.value = []; offset.value = 0; await load(); });
@@ -106,8 +113,10 @@ async function browserPunch(kind:string){
     <aside class="sidebar"><div class="brand"><span class="brand-mark">OA</span><span>员工办公<small>公司办公系统</small></span></div><nav aria-label="员工功能"><button v-for="[key,label] in nav" :key="key" :class="{active:page===key}" :aria-current="page===key?'page':undefined" :disabled="busy" @click="navigate(key!)">{{ label }}</button></nav><div class="sidebar-foot">与手机 App 共用账号与业务数据</div></aside>
     <main><header><h1>{{ title }}</h1><div class="user-bar"><span>{{ me.name }}</span><button :disabled="busy" @click="passwordOpen=true">修改密码</button><button :disabled="busy" @click="run(async()=>{await api('/auth/logout','POST');clearSession()})">退出登录</button></div></header>
       <p v-if="error" role="alert" class="error">{{ error }}</p><p v-if="message" role="status" class="success">{{ message }}</p>
+      <p v-if="uploadStatus" role="status">{{uploadStatus}}</p><p v-if="!['apply','messages'].includes(page)">待审批 {{approvalTotal(counts)}} · 待办任务 {{counts.tasks||0}} · 未读通知 {{counts.notifications||0}} · 未读公告 {{counts.announcements||0}}</p>
+      <AttendanceMonthly v-if="page==='punches'" :me="me" self @correct="copyDraft" />
       <Workbench v-if="page==='apply'" />
-      <StaffRequest v-if="page==='apply'" :key="revision" :me="me" @submitted="id=>{detailId=id;message='申请已提交'}" />
+      <StaffRequest @copy="copyDraft" v-if="page==='apply'" :key="revision" :me="me" :initial-draft="draft" @submitted="id=>{detailId=id;message='申请已提交'}" />
       <Documents v-if="page==='documents'" :document-id="documentId" />
       <Visitors v-if="page==='visitors'" :me="me" employee />
       <Contracts v-if="page==='contracts'" :me="me" :contract-id="contractId" />
@@ -135,7 +144,7 @@ async function browserPunch(kind:string){
         <article v-for="s in sessions" :key="s.id" class="staff-device"><p>{{ s.device_name }} · {{ s.platform }}{{ s.current?'（当前设备）':'' }}</p><p class="muted">登录：{{ display(s.created_at) }} · 到期：{{ display(s.expires_at) }}</p><button :disabled="busy" @click="revoke(s.id,s.current)">退出此设备</button></article>
       </section>
     </main>
-    <StaffRequest v-if="detailId" :me="me" :request-id="detailId" @close="detailId=null" @changed="revision++" />
+    <StaffRequest @copy="copyDraft" v-if="detailId" :me="me" :request-id="detailId" @close="detailId=null" @changed="revision++" />
     <div v-if="passwordOpen" class="modal-backdrop"><section class="modal" role="dialog" aria-modal="true" aria-label="修改密码"><div class="modal-header"><h2>修改密码</h2><button aria-label="关闭修改密码" @click="passwordOpen=false">×</button></div><p v-if="error" role="alert" class="error">{{ error }}</p><form @submit.prevent="changePassword"><label>原密码<input v-model="password.oldPassword" type="password" autocomplete="current-password" required /></label><label>新密码（至少10位，最多72个 UTF-8 字节）<input v-model="password.newPassword" type="password" autocomplete="new-password" minlength="10" required /></label><button class="primary" :disabled="busy">保存并重新登录</button></form></section></div>
   </div>
 </template>

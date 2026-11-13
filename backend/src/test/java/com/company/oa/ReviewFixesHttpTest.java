@@ -35,6 +35,7 @@ class ReviewFixesHttpTest {
 
   @BeforeEach
   void setup() {
+    auth.redis.delete("login-ip:127.0.0.1");
     prefix = "review" + UUID.randomUUID().toString().substring(0, 8);
     department =
         db.queryForObject(

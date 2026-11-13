@@ -40,6 +40,13 @@ class PunchService {
 
   @Transactional
   long record(Actor actor, long user, Punch input, String ip, boolean simulated) {
+    return recordAt(actor,user,input,ip,simulated,null);
+  }
+
+  @org.springframework.transaction.annotation.Transactional
+  long recordAt(Actor actor,long user,Punch input,String ip,boolean simulated,java.time.LocalDateTime simulatedAt) {
+    ApiException.require(simulated || simulatedAt==null,"仅模拟打卡可指定时间");
+    ApiException.require(simulatedAt==null || !simulatedAt.isAfter(java.time.LocalDateTime.now(clock)),"模拟时间不得在未来");
     if (user != actor.id()) actor.requireAdmin();
     db.queryForList("SELECT pg_advisory_xact_lock(20261112,hashint8(?))", user);
     db.queryForList("SELECT id FROM users WHERE id=? FOR UPDATE", user);
@@ -64,7 +71,7 @@ class PunchService {
       if (Set.of("WARMUP_CACHE", "LAST_KNOWN").contains(source))
         ApiException.require(age.compareTo(Duration.ofMinutes(30)) <= 0, "缓存定位超过30分钟");
     }
-    LocalDateTime now = LocalDateTime.now(clock);
+    LocalDateTime now = simulatedAt==null?LocalDateTime.now(clock):simulatedAt;
     if (input.kind().equals("NORMAL")) {
       ApiException.require(
           db.queryForObject(
@@ -207,18 +214,18 @@ class DevPunchController {
   }
 
   record Simulation(
-      @NotNull Long userId, @NotNull @Valid PunchService.Punch punch, @NotBlank String exitIp) {}
+      @NotNull Long userId, @NotNull @Valid PunchService.Punch punch, @NotBlank String exitIp, LocalDateTime at) {}
 
   @PostMapping("/punch")
   Object punch(@Valid @RequestBody Simulation in, HttpServletRequest req) {
     ApiException.require(AdminController.validIp(in.exitIp()), "请输入合法的出口 IP");
     return Map.of(
         "id",
-        punches.record(
+        punches.recordAt(
             Auth.actor(req),
             in.userId(),
             in.punch(),
             AdminController.normalizeIp(in.exitIp()),
-            true));
+            true,in.at()));
   }
 }

@@ -1,3 +1,4 @@
+import {prepareAttachment, uploadStatus} from './upload';
 export interface Actor {
   id: number;
   name: string;
@@ -14,6 +15,7 @@ export function setToken(value: string) {
   value ? sessionStorage.setItem(tokenKey, value) : sessionStorage.removeItem(tokenKey);
 }
 export async function api<T = any>(path: string, method = 'GET', body?: unknown): Promise<T> {
+  if(path==='/attachments' && body instanceof FormData) await prepareAttachment(body);
   let response: Response;
   try {
     response = await fetch('/api' + path, {
@@ -28,8 +30,10 @@ export async function api<T = any>(path: string, method = 'GET', body?: unknown)
       body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body),
     });
   } catch {
+    uploadStatus.value='';
     throw new Error('网络连接失败或请求超时，请确认服务已启动后重试');
   }
+  if(path==='/attachments') uploadStatus.value='';
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: '服务暂不可用，请稍后重试' }));
     if (response.status === 401 && path !== '/auth/login') {
@@ -38,6 +42,7 @@ export async function api<T = any>(path: string, method = 'GET', body?: unknown)
     }
     throw new Error(error.message || '操作失败，请检查输入');
   }
+  if(method!=='GET'&&!path.startsWith('/auth/')) window.dispatchEvent(new Event('oa-data-changed'));
   return response.json();
 }
 export async function download(path: string, filename: string) {

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test('公告部门发布、多附件、回执与撤回；员工消息中心和抄送只读', async ({ page, request }) => {
   const suffix = Date.now().toString().slice(-9);

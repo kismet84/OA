@@ -1,4 +1,4 @@
-import {test,expect,type Page} from '@playwright/test';
+import {test,expect,type Page} from './fixtures';
 import {readFileSync} from 'node:fs';
 // Run scripts/verify-phase3-visitors.py first; reuse sessions to avoid login throttling.
 test.use({timezoneId:'America/New_York'});

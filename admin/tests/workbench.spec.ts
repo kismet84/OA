@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './fixtures';
 import { readFileSync } from 'node:fs';
 // Prepare with scripts/verify-phase2-workbench.py (independent HTTP/SQL fixtures).
 const fixture = () => JSON.parse(readFileSync('../.runtime/workbench-fixture.json', 'utf8'));
@@ -22,7 +22,7 @@ test('员工只看本人数字、日期生效、消息数字和原入口保留�
   await range(page,f.fromDate,f.toDate);
   await expect(page.getByTestId('normalPunches')).toHaveText('252');
   await expect(page.getByTestId('leaveDays')).toHaveText('0.5');
-  await expect(box.getByText(/待办 \d+ · 未读通知/)).toBeVisible();
+  await expect(box.getByText(/待审批 \d+ · 待办任务 \d+ · 未读通知/)).toBeVisible();
   await expect(page.getByRole('heading',{name:'新建申请'})).toBeVisible();
   await page.setViewportSize({width:390,height:844});
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();

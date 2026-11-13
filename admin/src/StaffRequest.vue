@@ -1,13 +1,22 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { api, download, display, type Actor, type Row } from './api';
+import UrgeButton from './UrgeButton.vue';
+import {uploadStatus} from './upload';
 import DataTable from './DataTable.vue';
-const props = defineProps<{me: Actor; requestId?: number}>();
-const emit = defineEmits<{submitted:[id:number]; close:[]; changed:[]}>();
+const props = defineProps<{me: Actor; requestId?: number;initialDraft?:Row}>();
+const emit = defineEmits<{submitted:[id:number]; close:[]; changed:[];copy:[draft:Row]}>();
 const busy = ref(false), error = ref(''), detail = ref<Row | null>(null), types = ref<Row[]>([]), colleagues = ref<Row[]>([]), policy = ref<Row>({});
 const files = ref<Row[]>([]), approval = reactive({approve:true,comment:''});
 const fresh = () => ({ kind:'LEAVE',typeId:null as number|null,startDate:'',startTime:'09:00',endDate:'',endTime:'18:00',correctionAt:'',punchKind:'NORMAL',amount:0,reason:'',items:[{description:'',amount:0}],ccUserIds:[] as number[] });
 const application = reactive(fresh());
+const templates=ref<Row[]>([]),selectedTemplate=ref(''),templateName=ref(''),notice=ref(''),draftWarnings=ref<string[]>([]);
+async function loadTemplates(){templates.value=await api('/request-templates')}
+function fill(draft:Row){Object.assign(application,fresh(),draft.payload||draft,{kind:draft.kind||application.kind,startDate:'',endDate:''});files.value=[];draftWarnings.value=(draft.warnings||[]).filter((w:string)=>w!=='请重新选择日期，附件不会复制');notice.value='请重新选择日期，附件不会复制';}
+watch(()=>props.initialDraft,draft=>{if(draft)fill(draft)},{immediate:true});
+async function useTemplate(){const t=templates.value.find(t=>t.id===Number(selectedTemplate.value));if(t)fill(t)}
+async function saveTemplate(){if(!templateName.value.trim())throw new Error('请填写模板名称');const {typeId,reason,items,amount,ccUserIds,startTime,endTime}=application;await api('/request-templates','POST',{name:templateName.value,kind:application.kind,payload:{typeId,reason,items,amount,ccUserIds,startTime,endTime,...(application.startDate&&application.endDate?{durationDays:(Date.parse(application.endDate)-Date.parse(application.startDate))/86400000+(endTime==='18:00' ? 1 : 0.5)-(startTime==='13:00' ? 0.5 : 0)}:{})}});await loadTemplates();notice.value='模板已保存'}
+
 const cols = (pairs:string[]) => pairs.map(p=>{const [key,label]=p.split(':');return {key:key!,label:label!}});
 const canApprove = computed(()=>detail.value?.status==='PENDING' && detail.value.user_id!==props.me.id && detail.value.steps.some((s:Row)=>s.step===detail.value!.current_step && s.approver_id===props.me.id));
 // Interpret backend local timestamps in Asia/Shanghai even if the browser uses another timezone.
@@ -19,16 +28,17 @@ async function run(action:()=>Promise<void>) {
 async function loadDetail(){ detail.value=await api('/requests/'+props.requestId); }
 onMounted(()=>run(async()=>{
   if(props.requestId) await loadDetail();
-  else [types.value,colleagues.value,policy.value]=await Promise.all([api('/leave-types'),api('/colleagues'),api('/attendance-policy')]);
+  else { [types.value,colleagues.value,policy.value]=await Promise.all([api('/leave-types'),api('/colleagues'),api('/attendance-policy')]);await loadTemplates();}
 }));
 watch(()=>props.requestId,()=>{if(props.requestId)run(loadDetail)});
 watch(()=>application.kind,()=>{files.value=[]});
 async function upload(event:Event){
   const input=event.target as HTMLInputElement;
   await run(async()=>{
-    for(const file of Array.from(input.files || [])){
+    const picked=Array.from(input.files||[]);
+    for(const [i,file] of picked.entries()){
       if(application.kind==='EXPENSE' && files.value.length>=30)throw new Error('票据最多30张');
-      const body=new FormData();body.append('file',file);
+      const body=new FormData();body.append('file',file);body.append('uploadIndex',String(i+1));body.append('uploadTotal',String(picked.length));
       const uploaded=await api('/attachments','POST',body);
       if(application.kind==='EXPENSE')files.value.push(uploaded);else files.value=[uploaded];
     }
@@ -52,6 +62,8 @@ async function cancel(){await run(async()=>{await api('/requests/'+props.request
   <section v-if="!requestId" class="card staff-request">
     <h2>新建申请</h2><p class="muted">审批链、天数和余额均由服务端按现有规则核验。全部时间为北京时间。</p>
     <p v-if="error" role="alert" class="error">{{ error }}</p>
+    <p v-if="notice" class="success" role="status">{{notice}}</p><p v-for="warning in draftWarnings" :key="warning" class="error">{{warning}}</p><p v-if="uploadStatus" role="status">{{uploadStatus}}</p>
+    <div class="card"><label>从模板填单<select v-model="selectedTemplate" :disabled="busy" @change="run(useTemplate)"><option value="">请选择常用模板</option><option v-for="t in templates" :key="t.id" :value="String(t.id)">{{t.name}}（{{display(t.kind)}}）</option></select></label><label>模板名称<input v-model="templateName" maxlength="60" :disabled="busy" /></label><button :disabled="busy||!['LEAVE','TRAVEL','OUTING','EXPENSE'].includes(application.kind)" @click="run(saveTemplate)">保存为常用模板</button><details><summary>模板管理</summary><p v-for="t in templates" :key="t.id"><input v-model="t.name" aria-label="重命名模板" maxlength="60" /><button :disabled="busy" @click="run(async()=>{await api('/request-templates/'+t.id,'PUT',{name:t.name,kind:t.kind,payload:t.payload});await loadTemplates()})">重命名</button><button :disabled="busy" @click="run(async()=>{await api('/request-templates/'+t.id,'DELETE');await loadTemplates()})">删除模板</button></p></details></div>
     <form @submit.prevent="submit"><fieldset :disabled="busy" class="staff-fields">
       <label>申请类型<select aria-label="申请类型" v-model="application.kind"><option value="LEAVE">请假</option><option value="TRAVEL">出差</option><option value="OUTING">外出</option><option value="EXPENSE">报销</option><option value="OVERTIME">加班</option><option value="CORRECTION">补卡</option></select></label>
       <label v-if="application.kind==='LEAVE'">假期类型<select aria-label="假期类型" v-model="application.typeId" required><option :value="null" disabled>请选择</option><option v-for="t in types" :key="t.id" :value="t.id">{{ t.name }}{{ t.proof_required?'（必须证明）':t.code==='SICK'?'（建议证明）':'' }}</option></select></label>
@@ -65,7 +77,7 @@ async function cancel(){await run(async()=>{await api('/requests/'+props.request
     </fieldset></form>
   </section>
   <div v-else class="modal-backdrop"><section class="modal" role="dialog" aria-modal="true" aria-label="申请详情"><div class="modal-header"><h2>申请单 #{{ requestId }}</h2><button aria-label="关闭申请详情" @click="emit('close')">×</button></div><p v-if="error" role="alert" class="error">{{ error }}</p><p v-if="!detail">正在加载申请…</p>
-    <template v-if="detail"><dl class="detail-grid"><div><dt>申请人</dt><dd>{{ detail.user_name }}</dd></div><div><dt>类型 / 状态</dt><dd>{{ display(detail.kind) }} / {{ display(detail.status) }}</dd></div><div><dt>开始时间（北京时间）</dt><dd>{{ display(detail.start_at) }}</dd></div><div><dt>结束时间（北京时间）</dt><dd>{{ display(detail.end_at) }}</dd></div><div><dt>天数 / 金额</dt><dd>{{ display(detail.days) }} 天 / {{ display(detail.amount) }} 元</dd></div><div><dt>申请理由</dt><dd class="announcement-body">{{ detail.reason }}</dd></div></dl>
+    <template v-if="detail"><UrgeButton :detail="detail" :path="'/requests/'+detail.id" @done="run(loadDetail)" /><button v-if="detail.user_id===me.id&&['LEAVE','TRAVEL','OUTING','EXPENSE'].includes(detail.kind)" :disabled="busy" @click="run(async()=>emit('copy',await api('/requests/'+detail!.id+'/copy')))">复制再发起</button><dl class="detail-grid"><div><dt>申请人</dt><dd>{{ detail.user_name }}</dd></div><div><dt>类型 / 状态</dt><dd>{{ display(detail.kind) }} / {{ display(detail.status) }}</dd></div><div><dt>开始时间（北京时间）</dt><dd>{{ display(detail.start_at) }}</dd></div><div><dt>结束时间（北京时间）</dt><dd>{{ display(detail.end_at) }}</dd></div><div><dt>天数 / 金额</dt><dd>{{ display(detail.days) }} 天 / {{ display(detail.amount) }} 元</dd></div><div><dt>申请理由</dt><dd class="announcement-body">{{ detail.reason }}</dd></div></dl>
       <button v-if="detail.attachment_id" :disabled="busy" @click="run(()=>download('/attachments/'+detail!.attachment_id,'证明文件'))">下载证明</button>
       <p v-if="detail.kind==='CORRECTION'">补卡类型：{{ display(detail.punch_kind) }}；批准后生成补卡记录，不含现场定位。</p><p v-if="detail.kind==='OVERTIME'">兑换比例：{{ detail.overtime_ratio }}；批准计入 {{ detail.credited_days }} 天调休。</p>
       <template v-if="detail.kind==='EXPENSE'"><h3>费用明细</h3><DataTable :rows="detail.items" :columns="cols(['description:用途 / 类别','amount:金额（元）'])" /><h3>票据附件</h3><p v-if="!detail.attachments.length">历史单据未上传票据</p><button v-for="f in detail.attachments" :key="f.id" :disabled="busy" @click="run(()=>download('/attachments/'+f.id,f.original_name))">下载：{{ f.original_name }}</button><h3>支付状态：{{ display(detail.payment_status) }}</h3><ol class="timeline"><li v-for="h in detail.payment_history" :key="h.id">{{ h.actor_name }} · {{ display(h.status) }} · {{ display(h.acted_at) }}<p>{{ h.reason }}</p></li></ol></template>

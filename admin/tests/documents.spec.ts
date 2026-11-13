@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './fixtures';
 
 test.use({ locale: 'zh-CN', timezoneId: 'America/New_York' });
 const png = Buffer.from(

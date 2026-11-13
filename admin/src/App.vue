@@ -1,6 +1,11 @@
 <script setup lang="ts">
+import AttendanceRules from './AttendanceRules.vue';
+import AttendanceMonthly from './AttendanceMonthly.vue';
+import UrgeButton from './UrgeButton.vue';
+import {uploadStatus} from './upload';
+import {useMessageSummary,badgeText} from './messageSummary';
 import ApprovalAdmin from './ApprovalAdmin.vue';
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { api, download, display, labels, setToken, type Actor, type Row } from './api';
 import DataTable from './DataTable.vue';
 import MessageCenter from './MessageCenter.vue';
@@ -23,11 +28,16 @@ const me = ref<Actor | null>(null),
   busy = ref(false),
   message = ref(''),
   error = ref('');
+const {summary:messageCounts,refresh:refreshCounts}=useMessageSummary(computed(()=>!!me.value&&!me.value.mustChange));
+const pendingOnly=ref(false);
+function badge(key:string){return Number(messageCounts.value[({requests:'approvalsRequests',contracts:'approvalsContracts',assets:'approvalsAssets',tasks:'tasks',messages:'notifications'} as Record<string,string>)[key]||'']||0)}
+
 const page = ref('overview'),
   rows = ref<Row[]>([]),
   users = ref<Row[]>([]),
   departments = ref<Row[]>([]),
   types = ref<Row[]>([]);
+watch(page,()=>void refreshCounts());
 const modal = ref(''),
   detail = ref<Row | null>(null),
   editId = ref<number | null>(null),
@@ -135,6 +145,7 @@ const nav = computed(() => isAdmin.value ? [
   { key: 'workflow', title: '审批分流', icon: '流' },
   { key: 'requests', title: '审批单据', icon: '审' },
   { key: 'punches', title: '打卡记录', icon: '勤' },
+  {key:'attendance-rules',title:'考勤规则',icon:'规'}, {key:'attendance-monthly',title:'月度考勤',icon:'月'},
   ...(development.value ? [{ key: 'simulator', title: '模拟打卡', icon: '测' }] : []),
   { key: 'messages', title: '消息中心', icon: '信' },
   { key: 'announcements', title: '公告管理', icon: '告' },
@@ -296,11 +307,12 @@ function query(exporting = false) {
     if (filters.from) p.set('from', filters.from);
     if (filters.to) p.set('to', filters.to);
   }
+  if(page.value==='requests'&&pendingOnly.value)p.set('inbox','true');
   if (!exporting) p.set('offset', String(offset.value));
   return '?' + p;
 }
 async function load() {
-  if (['visitors','contracts','assets','calendar','tasks','documents'].includes(page.value)) return;
+  if (['attendance-rules','attendance-monthly','visitors','contracts','assets','calendar','tasks','documents'].includes(page.value)) return;
   loading.value = true;
   try {
     if (page.value === 'workflow') {
@@ -323,7 +335,9 @@ async function load() {
     loading.value = false;
   }
 }
-async function navigate(key: string) {
+async function navigate(key: string, pending=false) {
+  pendingOnly.value=pending;
+  await refreshCounts();
   if (key === 'contracts') contractId.value=null;
   if (key === 'assets') assetRequestId.value = null;
   page.value = key;
@@ -503,9 +517,9 @@ async function upload(event: Event) {
   const files = Array.from(input.files || []);
   if (!files.length) return;
   await run(async () => {
-    for (const file of files) {
+    for (const [i,file] of files.entries()) {
       const data = new FormData();
-      data.append('file', file);
+      data.append('file', file);data.append('uploadIndex',String(i+1));data.append('uploadTotal',String(files.length));
       const result = await api('/attachments', 'POST', data);
       if (application.kind === 'EXPENSE') {
         receipts.value.push(result);
@@ -610,12 +624,13 @@ onMounted(async () => {
         <button
           v-for="n in nav"
           :key="n.key"
+          :aria-label="n.title"
           :class="{ active: page === n.key }"
           :disabled="busy"
           @click="run(() => navigate(n.key))"
         >
           <span class="nav-icon">{{ n.icon }}</span
-          >{{ n.title }}
+          >{{ n.title }}<span v-if="badge(n.key)" class="nav-badge" :aria-label="n.title+'待办 '+badge(n.key)" @click.stop="run(()=>navigate(n.key,true))">{{badgeText(badge(n.key))}}</span>
         </button>
       </nav>
       <div class="sidebar-foot">
@@ -624,7 +639,7 @@ onMounted(async () => {
       </div>
     </aside>
     <main>
-      <header>
+      <p v-if="uploadStatus" role="status">{{uploadStatus}}</p><header>
         <div>
           <span class="eyebrow">管理工作区 / {{ pageTitle }}</span>
           <h1>{{ pageTitle }}</h1>
@@ -640,7 +655,7 @@ onMounted(async () => {
             修改密码</button
           ><button @click="signOut">退出</button>
         </div>
-      </header>
+      </header><p v-if="page==='requests'"><button :disabled="busy" @click="run(async()=>{pendingOnly=!pendingOnly;offset=0;await load()})">{{pendingOnly?'查看全部审批单据':'仅待我审批'}}</button><button v-if="isAdmin||me.roles.includes('FINANCE')" :disabled="busy" @click="run(()=>download('/admin/exports/expenses-monthly.csv?month='+new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit'}).format(new Date()),'本月报销汇总.csv'))">导出月度报销汇总</button></p>
       <div v-if="error" class="notice error" role="alert">
         {{ error }}<button @click="error = ''" aria-label="关闭错误">×</button>
       </div>
@@ -687,6 +702,8 @@ onMounted(async () => {
           </div>
         </div>
       </section>
+      <AttendanceRules v-else-if="page==='attendance-rules'" />
+      <AttendanceMonthly v-else-if="page==='attendance-monthly'" :me="me" />
       <section v-else-if="page === 'workflow'" class="card form-card">
         <h2>按额度与天数自动分流</h2>
         <p class="muted">
@@ -792,11 +809,11 @@ onMounted(async () => {
       </section>
       <Documents v-else-if="page==='documents'" :management="isAdmin" :departments="departments" :document-id="documentId" />
       <Visitors v-else-if="page==='visitors' && me" :me="me" />
-      <Contracts v-else-if="page==='contracts' && me" :me="me" :contract-id="contractId" />
-      <Assets v-else-if="page==='assets' && me" :me="me" :management="me.roles.split(',').some(r=>['ADMIN','FINANCE'].includes(r))" :request-id="assetRequestId" />
-      <Tasks v-else-if="page==='tasks' && me" :me="me" :management="isAdmin" :task-id="taskId" />
+      <Contracts :key="'Contracts'+pendingOnly" :pending-only="pendingOnly" v-else-if="page==='contracts' && me" :me="me" :contract-id="contractId" />
+      <Assets :key="'Assets'+pendingOnly" :pending-only="pendingOnly" v-else-if="page==='assets' && me" :me="me" :management="me.roles.split(',').some(r=>['ADMIN','FINANCE'].includes(r))" :request-id="assetRequestId" />
+      <Tasks :key="'Tasks'+pendingOnly" :pending-only="pendingOnly" v-else-if="page==='tasks' && me" :me="me" :management="isAdmin" :task-id="taskId" />
       <Calendar v-else-if="page==='calendar' && me" :me="me" :management="isAdmin" :meeting-id="meetingId" />
-      <MessageCenter @open-contract="id=>{contractId=id;page='contracts'}" @open-asset="id=>{assetRequestId=id;page='assets'}" @open-document="id=>{documentId=id;page='documents'}" @open-task="id=>{taskId=id;page='tasks'}" @open-meeting="id=>{meetingId=id;page='calendar'}" v-else-if="['messages','announcements'].includes(page)" :key="page" :management="page==='announcements'" :departments="departments" @open-request="showDetail" />
+      <MessageCenter :pending-only="pendingOnly" @open-contract="id=>{contractId=id;page='contracts'}" @open-asset="id=>{assetRequestId=id;page='assets'}" @open-document="id=>{documentId=id;page='documents'}" @open-task="id=>{taskId=id;page='tasks'}" @open-meeting="id=>{meetingId=id;page='calendar'}" v-else-if="['messages','announcements'].includes(page)" :key="page" :management="page==='announcements'" :departments="departments" @open-request="showDetail" />
       <section v-else class="card records">
         <div class="section-toolbar">
           <div>
@@ -1058,7 +1075,7 @@ onMounted(async () => {
           <p v-if="detail.kind === 'CORRECTION'">补卡类型：{{ display(detail.punch_kind) }}；批准后记录为补卡，不含现场定位。</p>
           <p v-if="detail.kind === 'OVERTIME'">兑换比例：{{ detail.overtime_ratio }}；最终批准计入 {{ detail.credited_days }} 天调休（开始年度）。</p>
           <h3>抄送名单</h3><p>{{ detail.cc?.map((u: Row) => u.name + '（' + u.employee_no + '）').join('、') || '无' }}</p>
-          <p v-for="h in detail.reassignments" :key="'reassign'+h.id">管理员 {{h.actor_name}} 改派：{{h.previous_approver_name||'财务或管理员'}} → {{h.approver_name}} · {{h.note}} · {{h.created_at}}</p><ApprovalAdmin v-if="me?.roles.split(',').includes('ADMIN') && detail.status==='PENDING'" :path="'/requests/'+detail.id" :owner-id="detail.user_id" workflow @done="run(async()=>{detail=await api('/requests/'+detail!.id);await load()})" /><h3>审批记录</h3>
+          <p v-for="h in detail.reassignments" :key="'reassign'+h.id">管理员 {{h.actor_name}} 改派：{{h.previous_approver_name||'财务或管理员'}} → {{h.approver_name}} · {{h.note}} · {{h.created_at}}</p><ApprovalAdmin v-if="me?.roles.split(',').includes('ADMIN') && detail.status==='PENDING'" :path="'/requests/'+detail.id" :owner-id="detail.user_id" workflow @done="run(async()=>{detail=await api('/requests/'+detail!.id);await load()})" /><UrgeButton v-if="detail" :detail="detail" :path="'/requests/'+detail.id" @done="run(async()=>{detail=await api('/requests/'+detail!.id)})" /><h3>审批记录</h3>
           <ol class="timeline">
             <li v-for="s in detail.steps" :key="s.step">
               <b>{{ s.approver_name }} · {{ display(s.status) }}</b>
@@ -1316,7 +1333,7 @@ onMounted(async () => {
               >申请理由<textarea v-model="application.reason" maxlength="2000" required /></label
             ><label
               >{{ application.kind === 'EXPENSE' ? '票据附件（必填，可多张）' : '证明文件（PDF / PNG / JPEG，最多 10MB）' }}<input
-                type="file"
+                type="file" :disabled="busy"
                 :multiple="application.kind === 'EXPENSE'"
                 accept=".pdf,.png,.jpg,.jpeg"
                 @change="upload"

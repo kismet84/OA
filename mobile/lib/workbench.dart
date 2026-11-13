@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'api.dart';
+import 'attendance.dart';
 import 'ui.dart';
 
 const workbenchKinds = {
@@ -28,12 +29,7 @@ class _WorkbenchState extends State<WorkbenchPage> with Guard<WorkbenchPage> {
   Future<void> loadMembers() => run(() async {
     final rows = records(
       await widget.api.call(
-        '/workbench/members?${Uri(
-              queryParameters: {
-                'offset': '$memberOffset',
-                if (department.isNotEmpty) 'departmentId': department,
-              },
-            ).query}',
+        '/workbench/members?${Uri(queryParameters: {'offset': '$memberOffset', if (department.isNotEmpty) 'departmentId': department}).query}',
       ),
     );
     if (mounted) setState(() => members = rows);
@@ -131,6 +127,24 @@ class _WorkbenchState extends State<WorkbenchPage> with Guard<WorkbenchPage> {
           feedback,
           if (d != null) ...[
             Text('${d['from']} 至 ${d['to']} · 在职人数 ${d['people']}'),
+            section('考勤异常'),
+            Text(
+              '迟到 ${a['anomalies']?['lateCount'] ?? 0} · 早退 ${a['anomalies']?['earlyCount'] ?? 0} · 缺卡 ${a['anomalies']?['missingCount'] ?? 0}',
+            ),
+            OutlinedButton(
+              onPressed: busy
+                  ? null
+                  : () => run(() async {
+                      final me =
+                          (await widget.api.call('/auth/me'))['user'] as Json;
+                      if (!mounted || !context.mounted) return;
+                      await go(
+                        context,
+                        AttendancePage(api: widget.api, user: me),
+                      );
+                    }),
+              child: const Text('查看本月考勤明细'),
+            ),
             section('考勤简单统计'),
             Text('正常打卡次数 ${a['normalPunches']}'),
             Text('出勤打卡次数 ${a['fieldPunches']}'),
@@ -150,6 +164,23 @@ class _WorkbenchState extends State<WorkbenchPage> with Guard<WorkbenchPage> {
             for (final member in members)
               ListTile(
                 title: Text('${member['name']}（${member['employee_no']}）'),
+                trailing: IconButton(
+                  tooltip: '成员月度考勤',
+                  icon: const Icon(Icons.calendar_month),
+                  onPressed: () => run(() async {
+                    final me =
+                        (await widget.api.call('/auth/me'))['user'] as Json;
+                    if (!mounted || !context.mounted) return;
+                    await go(
+                      context,
+                      AttendancePage(
+                        api: widget.api,
+                        user: me,
+                        memberId: member['id'] as int,
+                      ),
+                    );
+                  }),
+                ),
                 onTap: () => go(
                   context,
                   WorkbenchPunches(
@@ -239,14 +270,7 @@ class _WorkbenchPunchesState extends State<WorkbenchPunches>
   Future<void> load() => run(() async {
     final result = records(
       await widget.api.call(
-        '/punches?${Uri(
-              queryParameters: {
-                'userId': '${widget.user['id']}',
-                'from': widget.from,
-                'to': widget.to,
-                'offset': '$offset',
-              },
-            ).query}',
+        '/punches?${Uri(queryParameters: {'userId': '${widget.user['id']}', 'from': widget.from, 'to': widget.to, 'offset': '$offset'}).query}',
       ),
     );
     if (mounted) setState(() => rows = result);

@@ -109,6 +109,7 @@ void main() {
               'overtime_ratio': 1.25,
               'leave_threshold': 2,
             };
+          case '/api/request-templates':
           case '/api/leave-types':
             result = [];
           case '/api/colleagues':
@@ -143,7 +144,11 @@ void main() {
     expect(find.text('补卡类型'), findsOneWidget);
     await tester.enterText(find.widgetWithText(TextField, '申请理由'), '忘记打卡');
     final cc = find.textContaining('抄送同事（已选');
-    await tester.ensureVisible(cc);
+    await tester.scrollUntilVisible(
+      cc,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.tap(cc);
     await tester.pumpAndSettle();
     await tester.tap(find.text('李同事（E002）'));

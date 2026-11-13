@@ -32,7 +32,15 @@ void main() {
         expect(r.url.path, '/api/messages/summary');
         expect(r.headers['Authorization'], 'Bearer test-token');
         return http.Response(
-          jsonEncode({'pending': 3, 'notifications': 2, 'announcements': 1}),
+          jsonEncode({
+            'pending': 3,
+            'approvalsRequests': 3,
+            'approvalsContracts': 0,
+            'approvalsAssets': 0,
+            'tasks': 0,
+            'notifications': 2,
+            'announcements': 1,
+          }),
           200,
         );
       }),
@@ -51,7 +59,7 @@ void main() {
     expect(find.text('张员工，你好'), findsOneWidget);
     expect(find.text('3'), findsOneWidget);
     for (final label in [
-      '待我审批',
+      '申请待审批',
       '未读通知',
       '未读公告',
       '打卡',

@@ -352,3 +352,5 @@ cd mobile
 ```
 
 现有 `verify-mvp.py`、`verify-announcements.py`、`verify-mobile.py`、`verify-phase2-attend.py`、`verify-phase2-calendar.py`、`verify-phase2-todo.py` 继续用于回归。测试保留独立业务历史；不提交数据库、上传文件、SDK或构建物。
+
+第二阶段优化：考勤规则/工作日历、月度报表、审批催办、常用模板、角标和图片压缩的操作说明见 [docs/phase2-optimization.md](docs/phase2-optimization.md)，接口口径见 [docs/api.md](docs/api.md)。iOS 已无限期搁置，苹果手机用员工网页 `/staff/`。
