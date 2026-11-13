@@ -11,10 +11,23 @@ const _liveTimeout = Duration(seconds: 45);
 const _locationManagerTimeout = Duration(seconds: 20);
 const _freshLastKnownAge = Duration(minutes: 30);
 const _staleLastKnownAge = Duration(hours: 24);
+const _liveAccuracy = LocationAccuracy.high;
 
 StreamSubscription<Position>? _warmupSub;
 Position? _warmedPosition;
 int _warmupGeneration = 0;
+
+AndroidSettings _locationSettings({
+  Duration? timeLimit,
+  bool forceLocationManager = false,
+}) => AndroidSettings(
+  accuracy: _liveAccuracy,
+  distanceFilter: 0,
+  intervalDuration: const Duration(seconds: 1),
+  maxUpdateAge: Duration.zero,
+  timeLimit: timeLimit,
+  forceLocationManager: forceLocationManager,
+);
 
 bool _isTimeout(Object error) =>
     error is TimeoutException ||
@@ -52,21 +65,17 @@ void startPunchLocationWarmup() {
       }
       if (generation != _warmupGeneration) return;
       _warmupSub =
-          Geolocator.getPositionStream(
-            locationSettings: const LocationSettings(
-              accuracy: LocationAccuracy.medium,
-              distanceFilter: 0,
-            ),
-          ).listen(
-            (position) {
-              if (_isUsable(position, maxAge: _freshLastKnownAge)) {
-                _warmedPosition = position;
-              }
-            },
-            onError: (Object error) {
-              debugPrint('预热定位失败：$error');
-            },
-          );
+          Geolocator.getPositionStream(locationSettings: _locationSettings())
+              .listen(
+                (position) {
+                  if (_isUsable(position, maxAge: _freshLastKnownAge)) {
+                    _warmedPosition = position;
+                  }
+                },
+                onError: (Object error) {
+                  debugPrint('预热定位失败：$error');
+                },
+              );
     } catch (error) {
       debugPrint('启动定位预热失败：$error');
     }
@@ -134,15 +143,9 @@ getPunchLocation({bool allowStaleLastKnown = true}) async {
       throw ApiError('定位权限已被系统禁止，请打开应用设置允许定位');
     }
 
-    var warmed = _readWarmupLocation();
-    if (warmed != null) return warmed;
-
     try {
       final position = await _livePosition(
-        const LocationSettings(
-          accuracy: LocationAccuracy.medium,
-          timeLimit: _liveTimeout,
-        ),
+        _locationSettings(timeLimit: _liveTimeout),
       );
       return (
         position: position,
@@ -153,13 +156,12 @@ getPunchLocation({bool allowStaleLastKnown = true}) async {
     } catch (error) {
       if (!_isTimeout(error)) rethrow;
     }
-    warmed = _readWarmupLocation();
+    var warmed = _readWarmupLocation();
     if (warmed != null) return warmed;
 
     try {
       final position = await _livePosition(
-        AndroidSettings(
-          accuracy: LocationAccuracy.medium,
+        _locationSettings(
           timeLimit: _locationManagerTimeout,
           forceLocationManager: true,
         ),

@@ -60,17 +60,19 @@ class FakeLocation extends GeolocatorPlatform {
     LocationSettings? locationSettings,
   }) async {
     currentSettings.add(locationSettings);
-    expect(locationSettings?.accuracy, LocationAccuracy.medium);
-    final forced =
-        locationSettings is AndroidSettings &&
-        locationSettings.forceLocationManager;
+    expect(locationSettings, isA<AndroidSettings>());
+    expect(locationSettings?.accuracy, LocationAccuracy.high);
+    final androidSettings = locationSettings as AndroidSettings;
+    expect(androidSettings.intervalDuration, const Duration(seconds: 1));
+    expect(androidSettings.maxUpdateAge, Duration.zero);
+    final forced = androidSettings.forceLocationManager;
     await beforeCurrentResult?.call(forced);
     if (forced) {
       expect(locationSettings.timeLimit, const Duration(seconds: 20));
       if (locationManagerError != null) throw locationManagerError!;
       return locationManagerCurrent ?? current!;
     }
-    expect(locationSettings?.timeLimit, const Duration(seconds: 45));
+    expect(locationSettings.timeLimit, const Duration(seconds: 45));
     if (error != null) throw error!;
     return current!;
   }
@@ -242,16 +244,34 @@ void main() {
     expect(location.cacheCalls, 0);
   });
 
-  test('预热缓存保留采集时刻并明确来源', () async {
+  test('已有预热缓存时仍先尝试实时定位，成功则返回现场实时', () async {
     startPunchLocationWarmup();
-    await Future<void>.delayed(const Duration(milliseconds: 10));
+    await location.warmupStarted.future;
+    location.warmup.add(position(age: const Duration(minutes: 20)));
+    await Future<void>.delayed(Duration.zero);
+    location.current = position(latitude: 30.5);
+    final result = await getPunchLocation();
+    expect(result.position, location.current);
+    expect(result.locationSource, 'LIVE');
+    expect(result.locatedAt, result.position.timestamp.toUtc());
+    expect(location.currentSettings, hasLength(1));
+    expect(location.cacheCalls, 0);
+  });
+
+  test('已有预热缓存且实时超时则使用预热缓存并保留采集时刻', () async {
+    startPunchLocationWarmup();
+    await location.warmupStarted.future;
     final cached = position(age: const Duration(minutes: 20));
     location.warmup.add(cached);
     await Future<void>.delayed(Duration.zero);
+    location.error = TimeoutException('test');
+    location.locationManagerError = TimeoutException('test');
     final result = await getPunchLocation();
+    expect(result.position, cached);
     expect(result.locationSource, 'WARMUP_CACHE');
     expect(result.locatedAt, cached.timestamp.toUtc());
-    expect(location.currentSettings, isEmpty);
+    expect(result.usedLastKnown, false);
+    expect(location.currentSettings, hasLength(1));
   });
 
   for (final stage in ['首轮超时', '两轮超时', '系统缓存为空', '系统缓存读取失败']) {
