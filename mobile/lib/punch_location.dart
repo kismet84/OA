@@ -8,7 +8,6 @@ import 'api.dart';
 
 const _timeoutMessage = '定位超时，请到信号较好的地方重试';
 const _liveTimeout = Duration(seconds: 45);
-const _locationManagerTimeout = Duration(seconds: 20);
 const _freshLastKnownAge = Duration(minutes: 30);
 const _staleLastKnownAge = Duration(hours: 24);
 const _liveAccuracy = LocationAccuracy.high;
@@ -113,10 +112,101 @@ _readWarmupLocation() {
   return null;
 }
 
+String _channelName({required bool forceLocationManager}) =>
+    forceLocationManager ? '系统' : '首选';
+
+void _logPunchLocation({
+  required String channel,
+  required Stopwatch watch,
+  Position? position,
+  required String result,
+}) {
+  final accuracy = position == null ? '-' : '${position.accuracy}米';
+  final age = position == null
+      ? '-'
+      : '${DateTime.now().difference(position.timestamp).inSeconds}秒';
+  debugPrint(
+    '打卡定位 通道=$channel 耗时=${watch.elapsedMilliseconds}毫秒 精度=$accuracy 时效=$age 结果=$result',
+  );
+}
+
 Future<Position> _livePosition(LocationSettings settings) async {
   final limit = settings.timeLimit ?? _liveTimeout;
   return Geolocator.getCurrentPosition(locationSettings: settings)
       .timeout(limit);
+}
+
+Future<Position?> _tryLiveChannel({required bool forceLocationManager}) async {
+  final channel = _channelName(forceLocationManager: forceLocationManager);
+  final watch = Stopwatch()..start();
+  try {
+    final position = await _livePosition(
+      _locationSettings(
+        timeLimit: _liveTimeout,
+        forceLocationManager: forceLocationManager,
+      ),
+    );
+    if (_isUsable(position, maxAge: _freshLastKnownAge)) {
+      _logPunchLocation(
+        channel: channel,
+        watch: watch,
+        position: position,
+        result: '成功',
+      );
+      return position;
+    }
+    _logPunchLocation(
+      channel: channel,
+      watch: watch,
+      position: position,
+      result: '不可用',
+    );
+    return null;
+  } catch (error) {
+    _logPunchLocation(
+      channel: channel,
+      watch: watch,
+      result: _isTimeout(error) ? '超时' : '错误:$error',
+    );
+    if (_isTimeout(error)) return null;
+    rethrow;
+  }
+}
+
+Future<Position?> _raceLivePositions() async {
+  final completer = Completer<Position?>();
+  var pending = 2;
+  Object? nonTimeoutError;
+
+  void finish({Position? position, Object? error}) {
+    if (position != null) {
+      if (!completer.isCompleted) completer.complete(position);
+      return;
+    }
+    if (error != null) nonTimeoutError ??= error;
+    pending--;
+    if (pending > 0 || completer.isCompleted) return;
+    if (nonTimeoutError != null) {
+      completer.completeError(nonTimeoutError!);
+    } else {
+      completer.complete(null);
+    }
+  }
+
+  Future<void> run({required bool forceLocationManager}) async {
+    try {
+      final position = await _tryLiveChannel(
+        forceLocationManager: forceLocationManager,
+      );
+      finish(position: position);
+    } catch (error) {
+      finish(error: error);
+    }
+  }
+
+  run(forceLocationManager: false);
+  run(forceLocationManager: true);
+  return completer.future;
 }
 
 Future<
@@ -144,38 +234,19 @@ getPunchLocation({bool allowStaleLastKnown = true}) async {
     }
 
     try {
-      final position = await _livePosition(
-        _locationSettings(timeLimit: _liveTimeout),
-      );
-      return (
-        position: position,
-        usedLastKnown: false,
-        locatedAt: position.timestamp.toUtc(),
-        locationSource: 'LIVE',
-      );
+      final position = await _raceLivePositions();
+      if (position != null) {
+        return (
+          position: position,
+          usedLastKnown: false,
+          locatedAt: position.timestamp.toUtc(),
+          locationSource: 'LIVE',
+        );
+      }
     } catch (error) {
       if (!_isTimeout(error)) rethrow;
     }
     var warmed = _readWarmupLocation();
-    if (warmed != null) return warmed;
-
-    try {
-      final position = await _livePosition(
-        _locationSettings(
-          timeLimit: _locationManagerTimeout,
-          forceLocationManager: true,
-        ),
-      );
-      return (
-        position: position,
-        usedLastKnown: false,
-        locatedAt: position.timestamp.toUtc(),
-        locationSource: 'LIVE',
-      );
-    } catch (error) {
-      if (!_isTimeout(error)) rethrow;
-    }
-    warmed = _readWarmupLocation();
     if (warmed != null) return warmed;
 
     Position? cached;

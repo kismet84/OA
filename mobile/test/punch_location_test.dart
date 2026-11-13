@@ -67,12 +67,12 @@ class FakeLocation extends GeolocatorPlatform {
     expect(androidSettings.maxUpdateAge, Duration.zero);
     final forced = androidSettings.forceLocationManager;
     await beforeCurrentResult?.call(forced);
-    if (forced) {
-      expect(locationSettings.timeLimit, const Duration(seconds: 20));
-      if (locationManagerError != null) throw locationManagerError!;
-      return locationManagerCurrent ?? current!;
-    }
     expect(locationSettings.timeLimit, const Duration(seconds: 45));
+    if (forced) {
+      if (locationManagerError != null) throw locationManagerError!;
+      if (locationManagerCurrent != null) return locationManagerCurrent!;
+      throw TimeoutException('no system location');
+    }
     if (error != null) throw error!;
     return current!;
   }
@@ -122,7 +122,39 @@ void main() {
     expect(result.locationSource, 'LIVE');
     expect(result.locatedAt, result.position.timestamp.toUtc());
     expect(location.cacheCalls, 0);
-    expect(location.currentSettings, hasLength(1));
+    expect(location.currentSettings, hasLength(2));
+  });
+
+  test('系统定位先返回则不必等满首选通道', () async {
+    location.current = position();
+    location.locationManagerCurrent = position(latitude: 30.5);
+    location.beforeCurrentResult = (forced) async {
+      if (!forced) {
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+      }
+    };
+    final watch = Stopwatch()..start();
+    final result = await getPunchLocation();
+    expect(result.position, location.locationManagerCurrent);
+    expect(result.usedLastKnown, false);
+    expect(result.locationSource, 'LIVE');
+    expect(watch.elapsed, lessThan(const Duration(milliseconds: 300)));
+    expect(location.cacheCalls, 0);
+    expect(location.currentSettings, hasLength(2));
+  });
+
+  test('系统定位不可用时仍可使用稍后返回的首选通道', () async {
+    location.current = position(latitude: 30.5);
+    location.locationManagerCurrent = position(accuracy: 201);
+    location.beforeCurrentResult = (forced) async {
+      if (!forced) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+    };
+    final result = await getPunchLocation();
+    expect(result.position, location.current);
+    expect(result.locationSource, 'LIVE');
+    expect(location.cacheCalls, 0);
   });
 
   test('融合定位超时后回退到系统定位服务', () async {
@@ -254,7 +286,7 @@ void main() {
     expect(result.position, location.current);
     expect(result.locationSource, 'LIVE');
     expect(result.locatedAt, result.position.timestamp.toUtc());
-    expect(location.currentSettings, hasLength(1));
+    expect(location.currentSettings, hasLength(2));
     expect(location.cacheCalls, 0);
   });
 
@@ -271,7 +303,7 @@ void main() {
     expect(result.locationSource, 'WARMUP_CACHE');
     expect(result.locatedAt, cached.timestamp.toUtc());
     expect(result.usedLastKnown, false);
-    expect(location.currentSettings, hasLength(1));
+    expect(location.currentSettings, hasLength(2));
   });
 
   for (final stage in ['首轮超时', '两轮超时', '系统缓存为空', '系统缓存读取失败']) {
@@ -301,7 +333,7 @@ void main() {
       expect(result.usedLastKnown, false);
       expect(result.locatedAt, warmed.timestamp.toUtc());
       expect(location.cached, isNull);
-      expect(location.currentSettings, hasLength(stage == '首轮超时' ? 1 : 2));
+      expect(location.currentSettings, hasLength(2));
       expect(location.cacheCalls, stage.startsWith('系统缓存') ? 1 : 0);
     });
   }
