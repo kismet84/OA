@@ -92,7 +92,7 @@ test('员工网页：首次改密、手机号登录、六类提交、审批、�
   expect(receipts.read.some((r:any)=>r.user_id===f.employee.id && r.read_at)).toBeTruthy();
   await page.screenshot({path:'../.runtime/staff-desktop.png',fullPage:true});
   await nav(page,'通讯录');await page.getByLabel('搜索姓名 / 工号 / 部门').fill(f.supervisorNo);await page.getByRole('button',{name:'查询',exact:true}).click();await expect(page.getByRole('table')).toContainText('021-12345678');
-  await nav(page,'打卡记录');await expect(page.getByText(/现场打卡需要手机定位与网络校验/)).toBeVisible();
+  await nav(page,'打卡记录');await expect(page.getByText(/网页使用现场实时定位，提交前显示采集时间/)).toBeVisible();
   await nav(page,'个人中心');await expect(page.getByRole('table').first()).toContainText(String(year));
   await page.getByLabel('工作电话',{exact:true}).fill('021-87654321');await page.getByRole('button',{name:'保存工作电话'}).click();await expect(page.getByRole('status')).toContainText('工作电话已更新');
   const revoked = page.waitForResponse(r => r.url().endsWith('/api/auth/sessions/others') && r.request().method() === 'DELETE');

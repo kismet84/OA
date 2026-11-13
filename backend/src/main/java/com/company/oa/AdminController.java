@@ -25,7 +25,7 @@ class AdminController {
   }
 
   void orgLock() {
-    db.execute("SELECT pg_advisory_xact_lock(20261111)");
+    db.execute("SELECT pg_advisory_xact_lock(20261114)");
   }
 
   void active(Long id) {
@@ -209,6 +209,12 @@ class AdminController {
                     "SELECT count(*) FROM workflow_config WHERE finance_id=?", Long.class, id)
                 == 0,
             "请先调整财务审批人");
+      if (!in.enabled()) {
+        ApiException.require(db.queryForObject("SELECT count(*) FROM contract_steps s JOIN contracts c ON c.id=s.contract_id WHERE c.status='PENDING' AND s.revision=c.revision AND s.step>=c.current_step AND s.status='PENDING' AND s.approver_id=?",Long.class,id)==0,
+            "该人员仍有在途合同待审步骤，请先改派、代批或处理完合同后再停用");
+        ApiException.require(db.queryForObject("SELECT count(*) FROM asset_requests WHERE status='PENDING' AND approver_id=?",Long.class,id)==0,
+            "该人员仍有资产领用待审批，请先改派、代批或处理完领用申请后再停用");
+      }
       if (!in.enabled())
         ApiException.require(
             db.queryForObject(

@@ -296,6 +296,7 @@ class AssetController {
   @Transactional
   Object apply(@Valid @RequestBody Application in, HttpServletRequest req) {
     var a = Auth.actor(req);
+    ApprovalSupport.organizationSnapshot(db);
     ApiException.require((in.categoryId() == null) != (in.consumableId() == null), "请选择按件分类或具体消耗品");
     long cid;
     if (in.consumableId() != null) {
@@ -337,6 +338,7 @@ class AssetController {
             needs ? in.returnDate() : null,
             manager,
             manager == null ? "READY" : "PENDING");
+    if (manager != null) notifications.write(manager,"资产领用 #"+id+" 待您审批","asset_request_id",id);
     audit(a, "APPLY_ASSET", id, null);
     return Map.of("id", id);
   }
@@ -410,7 +412,9 @@ class AssetController {
             id);
     if (!manages(a)
         && number(r, "user_id") != a.id()
-        && !(r.get("status").equals("PENDING") && Objects.equals(r.get("approver_id"), a.id())))
+        && !Objects.equals(r.get("approver_id"), a.id())
+        && !Objects.equals(r.get("approval_actor_id"), a.id())
+        && db.queryForObject("SELECT count(*) FROM approval_reassignments WHERE business='ASSET' AND target_id=? AND (previous_approver_id=? OR approver_id=?)",Long.class,id,a.id(),a.id())==0)
       throw new ApiException(403, "无权查看或处理该领用申请");
     return r;
   }
@@ -429,6 +433,8 @@ class AssetController {
     r.put(
         "canApprove",
         r.get("status").equals("PENDING") && Objects.equals(r.get("approver_id"), a.id()));
+    r.put("reassignments", db.queryForList("SELECT h.*,u.name previous_approver_name,v.name approver_name,a.name actor_name FROM approval_reassignments h LEFT JOIN users u ON u.id=h.previous_approver_id JOIN users v ON v.id=h.approver_id JOIN users a ON a.id=h.actor_id WHERE business='ASSET' AND target_id=? ORDER BY h.id",id));
+    if(r.get("approval_actor_id")!=null) r.put("approval_actor_name",db.queryForObject("SELECT name FROM users WHERE id=?",String.class,r.get("approval_actor_id")));
     r.put("canManage", manages(a));
     r.put("isOwner", number(r, "user_id") == a.id());
     return r;
@@ -439,21 +445,37 @@ class AssetController {
   @PostMapping("/requests/{id}/approve")
   @Transactional
   Object approve(@PathVariable long id, @Valid @RequestBody Decision in, HttpServletRequest req) {
-    var a = Auth.actor(req);
+    return decide(id,in,Auth.actor(req),false);
+  }
+  @PostMapping("/requests/{id}/proxy-approve") @Transactional
+  Object proxyApprove(@PathVariable long id,@Valid @RequestBody Decision in,HttpServletRequest req) {
+    var a=Auth.actor(req);a.requireAdmin();return decide(id,in,a,true);
+  }
+  Object decide(long id,Decision in,Actor a,boolean proxy) {
     var r = request(id, a);
-    if (!Objects.equals(r.get("approver_id"), a.id())) throw new ApiException(403, "仅指定直属上级可审批");
+    ApiException.require(number(r,"user_id")!=a.id(),"不能审批自己的领用申请");
+    if (!proxy && !Objects.equals(r.get("approver_id"), a.id())) throw new ApiException(403, "仅指定直属上级可审批");
     conflict(r.get("status").equals("PENDING"), "申请不在待审批状态");
     ApiException.require(in.approved() || in.note() != null && !in.note().isBlank(), "驳回须填写原因");
     db.update(
-        "UPDATE asset_requests SET status=?,approval_note=? WHERE id=?",
+        "UPDATE asset_requests SET status=?,approval_note=?,approval_actor_id=?,approval_acted_at=now() WHERE id=?",
         in.approved() ? "READY" : "REJECTED",
-        in.note(),
+        proxy?ApprovalSupport.proxyNote(in.note()):in.note(), a.id(),
         id);
     notifyApplicant(r, in.approved() ? "审批通过，待发放" : "申请已驳回：" + in.note());
     audit(a, "APPROVE_ASSET", id, "通过=" + in.approved() + "," + in.note());
     return Map.of("message", "审批已处理");
   }
 
+  @PostMapping("/requests/{id}/reassign") @Transactional
+  Object reassign(@PathVariable long id,@Valid @RequestBody ApprovalSupport.Reassign in,HttpServletRequest req) {
+    var a=Auth.actor(req);a.requireAdmin();ApprovalSupport.organizationSnapshot(db);
+    var r=request(id,a);conflict(r.get("status").equals("PENDING"),"仅待审批申请可改派");
+    ApprovalSupport.reassign(db,a,"ASSET",id,0,1,(Long)r.get("approver_id"),number(r,"user_id"),in);
+    db.update("UPDATE asset_requests SET approver_id=? WHERE id=?",in.approverId(),id);
+    notifications.write(in.approverId(),"资产领用 #"+id+" 已改派给您审批："+in.note(),"asset_request_id",id);
+    audit(a,"REASSIGN_ASSET",id,in.note());return Map.of("message","审批人已改派");
+  }
   @PostMapping("/requests/{id}/withdraw")
   @Transactional
   Object withdraw(@PathVariable long id, HttpServletRequest req) {

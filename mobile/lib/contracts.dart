@@ -448,6 +448,10 @@ class _ContractDetailState extends State<ContractDetailPage>
                 ],
               ),
             section('审批记录'),
+            for (final h in records(d['reassignments'] ?? const []))
+              Text(
+                '管理员 ${h['actor_name']} 改派：${h['previous_approver_name'] ?? '财务或管理员'} → ${h['approver_name']} · ${h['note']}',
+              ),
             for (final s in records(d['steps']))
               Text(
                 '第 ${s['revision']} 次 · 第 ${s['step']} 级 · ${s['approver_name'] ?? '财务或管理员'} · ${s['status'] == 'APPROVED'

@@ -52,7 +52,7 @@ async function load() {
     departments.value = await api('/directory/departments');
     rows.value = await api('/directory?' + new URLSearchParams({ search: filters.search, offset: String(offset.value), ...(filters.departmentId ? {departmentId: filters.departmentId} : {}) }));
   } else if (page.value === 'punches') {
-    rows.value = (await api<Row[]>('/punches?' + new URLSearchParams({ from: filters.from, to: filters.to, kind: filters.kind, offset: String(offset.value) }))).map(r => ({...r, source: r.correction_request_id ? '补卡' : '现场打卡'}));
+    rows.value = (await api<Row[]>('/punches?' + new URLSearchParams({ from: filters.from, to: filters.to, kind: filters.kind, offset: String(offset.value) }))).map(r => ({...r, location_source:r.location_source||'UNKNOWN', source: r.correction_request_id ? '补卡' : '现场打卡'}));
   } else if (page.value === 'profile') {
     [profile.value, balances.value, history.value, sessions.value] = await Promise.all([api('/profile'), api('/balances'), api('/balance-history'), api('/auth/sessions')]);
     phone.value = profile.value.work_phone || '';
@@ -82,6 +82,18 @@ onMounted(async () => {
   ready.value = true;
 });
 onUnmounted(() => window.removeEventListener('oa-session-expired', expired));
+const punchBusy=ref(false),punchMessage=ref('');
+async function browserPunch(kind:string){
+ punchBusy.value=true;punchMessage.value='正在获取现场实时定位…';
+ try{
+ const pos=await new Promise<GeolocationPosition>((resolve,reject)=>navigator.geolocation.getCurrentPosition(resolve,reject,{enableHighAccuracy:true,maximumAge:0,timeout:45000}));
+ const locatedAt=new Date(pos.timestamp).toISOString();
+ punchMessage.value='现场实时 · 采集时间 '+display(locatedAt)+'（北京时间）';
+ if(!window.confirm(punchMessage.value+'，确认打卡？'))return;
+ await api('/punches','POST',{kind,latitude:pos.coords.latitude,longitude:pos.coords.longitude,accuracy:pos.coords.accuracy,locatedAt,locationSource:'LIVE'});
+ await load();punchMessage.value='打卡成功 · '+punchMessage.value;
+ }catch(e){punchMessage.value=e&&typeof e==='object'&&'message' in e?String(e.message):'定位或打卡失败，请检查浏览器定位权限'}finally{punchBusy.value=false}
+}
 </script>
 <template>
   <div v-if="!ready" class="first-password" role="status">正在恢复会话…</div>
@@ -104,13 +116,13 @@ onUnmounted(() => window.removeEventListener('oa-session-expired', expired));
       <Calendar v-if="page==='calendar'" :me="me" :meeting-id="meetingId" />
       <MessageCenter @open-contract="id=>{contractId=id;page='contracts'}" @open-asset="id=>{assetRequestId=id;page='assets'}" @open-document="id=>{documentId=id;page='documents'}" @open-task="id=>{taskId=id;page='tasks'}" @open-meeting="id=>{meetingId=id;page='calendar'}" v-if="page==='messages'" :refresh-key="revision" :departments="[]" @open-request="row=>detailId=row.id" />
       <section v-if="page==='directory' || page==='punches'" class="card">
-        <p v-if="page==='punches'" class="success">网页仅供查看打卡记录。现场打卡需要手机定位与网络校验，请使用手机 App。</p>
+        <p v-if="page==='punches'" class="success">正常打卡须在公司网络，出勤须有有效出差/外出审批。网页使用现场实时定位，提交前显示采集时间。</p><div v-if="page==='punches'"><button :disabled="punchBusy" @click="browserPunch('NORMAL')">网页正常打卡</button><button :disabled="punchBusy" @click="browserPunch('FIELD')">网页出勤打卡</button><p role="status">{{punchMessage}}</p></div>
         <form class="filters" @submit.prevent="run(async()=>{offset=0;await load()})">
           <template v-if="page==='directory'"><label>搜索姓名 / 工号 / 部门<input v-model="filters.search" maxlength="100" /></label><label>部门（含下级）<select v-model="filters.departmentId"><option value="">全部部门</option><option v-for="d in departmentTree" :key="d.id" :value="String(d.id)">{{ d.label }}</option></select></label></template>
           <template v-else><label>开始日期<input v-model="filters.from" type="date" /></label><label>结束日期<input v-model="filters.to" type="date" /></label><label>打卡类型<select v-model="filters.kind"><option value="">全部类型</option><option value="NORMAL">正常打卡</option><option value="FIELD">出勤</option></select></label></template>
           <button class="primary" :disabled="busy">查询</button>
         </form>
-        <DataTable :rows="rows" :columns="cols(page==='directory'?['name:姓名','employee_no:工号','department_name:部门','job_title:职务','work_phone:工作电话']:['punched_at:打卡时间（北京时间）','kind:类型','source:来源','correction_request_id:补卡单号'])" />
+        <DataTable :rows="rows" :columns="cols(page==='directory'?['name:姓名','employee_no:工号','department_name:部门','job_title:职务','work_phone:工作电话']:['punched_at:打卡时间（北京时间）','located_at:定位采集时间','location_source:定位来源','kind:类型','source:来源','correction_request_id:补卡单号'])" />
         <div class="pagination"><span>第 {{ offset/200+1 }} 页 · 每页最多200条</span><button :disabled="busy || !offset" @click="run(async()=>{offset-=200;await load()})">上一页</button><button :disabled="busy || rows.length<200" @click="run(async()=>{offset+=200;await load()})">下一页</button></div>
       </section>
       <section v-if="page==='profile'" class="card">

@@ -51,21 +51,22 @@ void startPunchLocationWarmup() {
         return;
       }
       if (generation != _warmupGeneration) return;
-      _warmupSub = Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.medium,
-          distanceFilter: 0,
-        ),
-      ).listen(
-        (position) {
-          if (_isUsable(position, maxAge: _freshLastKnownAge)) {
-            _warmedPosition = position;
-          }
-        },
-        onError: (Object error) {
-          debugPrint('预热定位失败：$error');
-        },
-      );
+      _warmupSub =
+          Geolocator.getPositionStream(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.medium,
+              distanceFilter: 0,
+            ),
+          ).listen(
+            (position) {
+              if (_isUsable(position, maxAge: _freshLastKnownAge)) {
+                _warmedPosition = position;
+              }
+            },
+            onError: (Object error) {
+              debugPrint('预热定位失败：$error');
+            },
+          );
     } catch (error) {
       debugPrint('启动定位预热失败：$error');
     }
@@ -86,14 +87,19 @@ void resetPunchLocationWarmupForTest() {
 
 Future<Position> _livePosition(LocationSettings settings) async {
   final limit = settings.timeLimit ?? _liveTimeout;
-  return Geolocator.getCurrentPosition(
-    locationSettings: settings,
-  ).timeout(limit);
+  return Geolocator.getCurrentPosition(locationSettings: settings)
+      .timeout(limit);
 }
 
-Future<({Position position, bool usedLastKnown})> getPunchLocation({
-  bool allowStaleLastKnown = true,
-}) async {
+Future<
+  ({
+    Position position,
+    bool usedLastKnown,
+    DateTime locatedAt,
+    String locationSource,
+  })
+>
+getPunchLocation({bool allowStaleLastKnown = true}) async {
   try {
     if (!await Geolocator.isLocationServiceEnabled()) {
       throw ApiError('定位服务未开启，请在系统设置中开启');
@@ -111,7 +117,12 @@ Future<({Position position, bool usedLastKnown})> getPunchLocation({
 
     final warmed = _warmedPosition;
     if (warmed != null && _isUsable(warmed, maxAge: _freshLastKnownAge)) {
-      return (position: warmed, usedLastKnown: false);
+      return (
+        position: warmed,
+        usedLastKnown: false,
+        locatedAt: warmed.timestamp.toUtc(),
+        locationSource: 'WARMUP_CACHE',
+      );
     }
 
     try {
@@ -121,7 +132,12 @@ Future<({Position position, bool usedLastKnown})> getPunchLocation({
           timeLimit: _liveTimeout,
         ),
       );
-      return (position: position, usedLastKnown: false);
+      return (
+        position: position,
+        usedLastKnown: false,
+        locatedAt: position.timestamp.toUtc(),
+        locationSource: 'LIVE',
+      );
     } catch (error) {
       if (!_isTimeout(error)) rethrow;
     }
@@ -134,7 +150,12 @@ Future<({Position position, bool usedLastKnown})> getPunchLocation({
           forceLocationManager: true,
         ),
       );
-      return (position: position, usedLastKnown: false);
+      return (
+        position: position,
+        usedLastKnown: false,
+        locatedAt: position.timestamp.toUtc(),
+        locationSource: 'LIVE',
+      );
     } catch (error) {
       if (!_isTimeout(error)) rethrow;
     }
@@ -156,7 +177,14 @@ Future<({Position position, bool usedLastKnown})> getPunchLocation({
         (_isUsable(cached, maxAge: _freshLastKnownAge) ||
             (allowStaleLastKnown &&
                 _isUsable(cached, maxAge: _staleLastKnownAge)))) {
-      return (position: cached, usedLastKnown: true);
+      return (
+        position: cached,
+        usedLastKnown: true,
+        locatedAt: cached.timestamp.toUtc(),
+        locationSource: _isUsable(cached, maxAge: _freshLastKnownAge)
+            ? 'LAST_KNOWN'
+            : 'STALE_FALLBACK',
+      );
     }
     throw ApiError(_timeoutMessage);
   } on ApiError {

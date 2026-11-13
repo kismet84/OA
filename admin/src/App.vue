@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ApprovalAdmin from './ApprovalAdmin.vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { api, download, display, labels, setToken, type Actor, type Row } from './api';
 import DataTable from './DataTable.vue';
@@ -215,7 +216,7 @@ const columns: Record<string, string[]> = {
   ],
   punches: [
     'user_name:姓名',
-    'punched_at:打卡时间',
+    'punched_at:打卡时间', 'located_at:定位采集时间', 'location_source:定位来源',
     'kind:类型',
     'source:记录来源',
     'correction_request_id:补卡单号',
@@ -317,7 +318,7 @@ async function load() {
     else if (['requests', 'punches'].includes(page.value))
       rows.value = await api('/' + page.value + query());
     else rows.value = await api((page.value === 'notifications' ? '/' : '/admin/') + page.value);
-    if (page.value === 'punches') rows.value = rows.value.map(r => ({...r, source: r.correction_request_id ? '补卡' : '现场打卡'}));
+    if (page.value === 'punches') rows.value = rows.value.map(r => ({...r, location_source:r.location_source||'UNKNOWN', source: r.correction_request_id ? '补卡' : '现场打卡'}));
   } finally {
     loading.value = false;
   }
@@ -1057,12 +1058,12 @@ onMounted(async () => {
           <p v-if="detail.kind === 'CORRECTION'">补卡类型：{{ display(detail.punch_kind) }}；批准后记录为补卡，不含现场定位。</p>
           <p v-if="detail.kind === 'OVERTIME'">兑换比例：{{ detail.overtime_ratio }}；最终批准计入 {{ detail.credited_days }} 天调休（开始年度）。</p>
           <h3>抄送名单</h3><p>{{ detail.cc?.map((u: Row) => u.name + '（' + u.employee_no + '）').join('、') || '无' }}</p>
-          <h3>审批记录</h3>
+          <p v-for="h in detail.reassignments" :key="'reassign'+h.id">管理员 {{h.actor_name}} 改派：{{h.previous_approver_name||'财务或管理员'}} → {{h.approver_name}} · {{h.note}} · {{h.created_at}}</p><ApprovalAdmin v-if="me?.roles.split(',').includes('ADMIN') && detail.status==='PENDING'" :path="'/requests/'+detail.id" :owner-id="detail.user_id" workflow @done="run(async()=>{detail=await api('/requests/'+detail!.id);await load()})" /><h3>审批记录</h3>
           <ol class="timeline">
             <li v-for="s in detail.steps" :key="s.step">
               <b>{{ s.approver_name }} · {{ display(s.status) }}</b>
               <p>
-                {{ s.comment || '暂无意见' }} <small>{{ s.acted_at }}</small>
+                {{s.actor_name ? '实际操作：'+s.actor_name+' · ' : ''}}{{ s.comment || '暂无意见' }} <small>{{ s.acted_at }}</small>
               </p>
             </li>
           </ol>

@@ -29,7 +29,7 @@ class ContractController {
   long num(Map<String,Object> r,String k){return ((Number)r.get(k)).longValue();}
   String visibility(Actor a) {
     if(all(a))return "true";
-    return "(c.user_id="+a.id()+" OR EXISTS(SELECT 1 FROM users v WHERE v.id=c.user_id AND v.manager_id="+a.id()+")"+
+    return "(c.user_id="+a.id()+" OR EXISTS(SELECT 1 FROM contract_steps s WHERE s.contract_id=c.id AND (s.approver_id="+a.id()+" OR s.actor_id="+a.id()+")) OR EXISTS(SELECT 1 FROM approval_reassignments h WHERE h.business='CONTRACT' AND h.target_id=c.id AND (h.previous_approver_id="+a.id()+" OR h.approver_id="+a.id()+")) OR EXISTS(SELECT 1 FROM users v WHERE v.id=c.user_id AND v.manager_id="+a.id()+")"+
       (a.has("DEPT_HEAD")?" OR c.department_id IN (WITH RECURSIVE ds AS (SELECT id FROM departments WHERE head_id="+a.id()+" UNION SELECT d.id FROM departments d JOIN ds ON d.parent_id=ds.id) SELECT id FROM ds)":"")+")";
   }
   String effective(){return "CASE WHEN c.expiry_date<? AND c.status<>'TERMINATED' THEN 'EXPIRED' ELSE c.status END";}
@@ -82,7 +82,7 @@ class ContractController {
     audit(a,"SAVE_CONTRACT",id);return Map.of("id",id);
   }
   @DeleteMapping("/{id}") @Transactional Object delete(@PathVariable long id,HttpServletRequest req){var a=Auth.actor(req);var r=get(id,a,true);owner(r,a);state(r.get("workflow_status").equals("DRAFT"));db.update("DELETE FROM contracts WHERE id=?",id);audit(a,"DELETE_CONTRACT",id);return Map.of("message","草稿已删除");}
-  String pendingSql(Actor a){return "c.status='PENDING' AND c.user_id<>"+a.id()+" AND EXISTS(SELECT 1 FROM contract_steps s WHERE s.contract_id=c.id AND s.revision=c.revision AND s.step=c.current_step AND (s.approver_id="+a.id()+" OR s.approver_id IS NULL AND "+all(a)+"))";}
+  String pendingSql(Actor a){return "c.status='PENDING' AND c.user_id<>"+a.id()+" AND EXISTS(SELECT 1 FROM contract_steps s WHERE s.contract_id=c.id AND s.revision=c.revision AND s.step=c.current_step AND s.status='PENDING' AND (s.approver_id="+a.id()+" OR s.approver_id IS NULL AND "+all(a)+"))";}
   long pending(Actor a){return db.queryForObject("SELECT count(*) FROM contracts c WHERE "+pendingSql(a),Long.class);}
   void notifyNext(long id){
     var r=db.queryForMap("SELECT c.user_id,s.approver_id FROM contracts c JOIN contract_steps s ON s.contract_id=c.id AND s.revision=c.revision AND s.step=c.current_step WHERE c.id=?",id);
@@ -90,7 +90,7 @@ class ContractController {
     else for(long u:db.queryForList("SELECT id FROM users WHERE enabled AND id<>? AND ( 'FINANCE'=ANY(string_to_array(roles,',')) OR 'ADMIN'=ANY(string_to_array(roles,',')))",Long.class,r.get("user_id")))notice(u,id,"待财务或管理员终审");
   }
   @PostMapping("/{id}/submit") @Transactional Object submit(@PathVariable long id,HttpServletRequest req){
-    var a=Auth.actor(req);var r=get(id,a,true);owner(r,a);state(editable(r));
+    var a=Auth.actor(req);ApprovalSupport.organizationSnapshot(db);var r=get(id,a,true);owner(r,a);state(editable(r));
     var u=db.queryForMap("SELECT manager_id FROM users WHERE id=?",r.get("user_id"));
     List<Long> chain=new ArrayList<>();Long manager=(Long)u.get("manager_id");
     if(manager!=null){ApiException.require(manager!=a.id()&&db.queryForObject("SELECT count(*) FROM users WHERE id=? AND enabled",Long.class,manager)==1,"直属上级无效，请联系管理员");chain.add(manager);}
@@ -108,17 +108,33 @@ class ContractController {
   }
   record Decision(boolean approved,@Size(max=1000) String note){}
   @PostMapping("/{id}/approve") @Transactional Object approve(@PathVariable long id,@Valid @RequestBody Decision in,HttpServletRequest req){
-    var a=Auth.actor(req);get(id,a,true);
-    if(db.queryForObject("SELECT count(*) FROM contracts c WHERE c.id=? AND "+pendingSql(a),Long.class,id)==0)throw new ApiException(403,"当前不轮到您审批或合同已处理");
+    return decide(id,in,Auth.actor(req),false);
+  }
+  @PostMapping("/{id}/proxy-approve") @Transactional Object proxyApprove(@PathVariable long id,@Valid @RequestBody Decision in,HttpServletRequest req){
+    var a=Auth.actor(req);a.requireAdmin();return decide(id,in,a,true);
+  }
+  Object decide(long id,Decision in,Actor a,boolean proxy){
+    var current=get(id,a,true);
+    state(current.get("workflow_status").equals("PENDING"));
+    ApiException.require(num(current,"user_id")!=a.id(),"不能审批自己的合同");
+    if(!proxy && db.queryForObject("SELECT count(*) FROM contracts c WHERE c.id=? AND "+pendingSql(a),Long.class,id)==0)throw new ApiException(403,"当前不轮到您审批或合同已处理");
     ApiException.require(in.approved()||in.note()!=null&&!in.note().isBlank(),"驳回必须填写原因");
     var r=db.queryForMap("SELECT * FROM contracts WHERE id=?",id);
-    db.update("UPDATE contract_steps SET status=?,actor_id=?,note=?,acted_at=? WHERE contract_id=? AND revision=? AND step=?",in.approved()?"APPROVED":"REJECTED",a.id(),in.note(),LocalDateTime.now(clock),id,r.get("revision"),r.get("current_step"));
+    db.update("UPDATE contract_steps SET status=?,actor_id=?,note=?,acted_at=? WHERE contract_id=? AND revision=? AND step=?",in.approved()?"APPROVED":"REJECTED",a.id(),proxy?ApprovalSupport.proxyNote(in.note()):in.note(),LocalDateTime.now(clock),id,r.get("revision"),r.get("current_step"));
     int next=((Number)r.get("current_step")).intValue()+1;
     boolean last=db.queryForObject("SELECT count(*) FROM contract_steps WHERE contract_id=? AND revision=? AND step=?",Long.class,id,r.get("revision"),next)==0;
     String status=!in.approved()?"REJECTED":last?"TO_ARCHIVE":"PENDING";
     db.update("UPDATE contracts SET status=?,current_step=? WHERE id=?",status,status.equals("PENDING")?next:r.get("current_step"),id);
     notice(num(r,"user_id"),id,in.approved()?(last?"审批通过，待上传盖章版归档":"本级审批通过"):"已驳回："+in.note());
     if(status.equals("PENDING"))notifyNext(id);audit(a,in.approved()?"APPROVE_CONTRACT":"REJECT_CONTRACT",id);return Map.of("message","审批已处理");
+  }
+  @PostMapping("/{id}/reassign") @Transactional Object reassign(@PathVariable long id,@Valid @RequestBody ApprovalSupport.Reassign in,HttpServletRequest req){
+    var a=Auth.actor(req);a.requireAdmin();ApprovalSupport.organizationSnapshot(db);
+    var r=get(id,a,true);state(r.get("workflow_status").equals("PENDING"));
+    var s=db.queryForMap("SELECT * FROM contract_steps WHERE contract_id=? AND revision=? AND step=?",id,r.get("revision"),r.get("current_step"));
+    ApprovalSupport.reassign(db,a,"CONTRACT",id,((Number)r.get("revision")).intValue(),((Number)r.get("current_step")).intValue(),(Long)s.get("approver_id"),num(r,"user_id"),in);
+    db.update("UPDATE contract_steps SET approver_id=? WHERE contract_id=? AND revision=? AND step=?",in.approverId(),id,r.get("revision"),r.get("current_step"));
+    notice(in.approverId(),id,"管理员已改派给您审批："+in.note());audit(a,"REASSIGN_CONTRACT",id);return Map.of("message","审批人已改派");
   }
   @PostMapping("/{id}/withdraw") @Transactional Object withdraw(@PathVariable long id,HttpServletRequest req){var a=Auth.actor(req);var r=get(id,a,true);owner(r,a);state(r.get("workflow_status").equals("PENDING"));db.update("UPDATE contracts SET status='WITHDRAWN' WHERE id=?",id);notice(a.id(),id,"已撤回");audit(a,"WITHDRAW_CONTRACT",id);return Map.of("message","已撤回");}
   record Archive(@NotNull @Size(min=1,max=30) List<@NotNull UUID> attachmentIds){}
@@ -133,7 +149,7 @@ class ContractController {
   }
   record Reason(@NotBlank @Size(max=1000) String reason){}
   @PostMapping("/{id}/terminate") @Transactional Object terminate(@PathVariable long id,@Valid @RequestBody Reason in,HttpServletRequest req){var a=Auth.actor(req);var r=get(id,a,true);if(num(r,"user_id")!=a.id()&&!a.admin())throw new ApiException(403,"仅经办人或管理员可终止");state(!Set.of("DRAFT","TERMINATED").contains(r.get("workflow_status")));db.update("UPDATE contracts SET status='TERMINATED',termination_reason=? WHERE id=?",in.reason(),id);notice(num(r,"user_id"),id,"已终止："+in.reason());audit(a,"TERMINATE_CONTRACT",id);return Map.of("message","合同已终止");}
-  @GetMapping("/{id}") Object detail(@PathVariable long id,HttpServletRequest req){var a=Auth.actor(req);var r=get(id,a,false);r.put("isOwner",num(r,"user_id")==a.id());r.put("canArchive",num(r,"user_id")==a.id()||a.admin());r.put("canApprove",db.queryForObject("SELECT count(*) FROM contracts c WHERE c.id=? AND "+pendingSql(a),Long.class,id)>0);r.put("files",rows("SELECT f.*,a.original_name,a.media_type FROM contract_files f JOIN attachments a ON a.id=f.attachment_id WHERE contract_id=? ORDER BY sealed,original_name",id));r.put("steps",rows("SELECT s.*,u.name approver_name,v.name actor_name FROM contract_steps s LEFT JOIN users u ON u.id=s.approver_id LEFT JOIN users v ON v.id=s.actor_id WHERE contract_id=? ORDER BY revision,step",id));return r;}
+  @GetMapping("/{id}") Object detail(@PathVariable long id,HttpServletRequest req){var a=Auth.actor(req);var r=get(id,a,false);r.put("isOwner",num(r,"user_id")==a.id());r.put("canArchive",num(r,"user_id")==a.id()||a.admin());r.put("canApprove",db.queryForObject("SELECT count(*) FROM contracts c WHERE c.id=? AND "+pendingSql(a),Long.class,id)>0);r.put("files",rows("SELECT f.*,a.original_name,a.media_type FROM contract_files f JOIN attachments a ON a.id=f.attachment_id WHERE contract_id=? ORDER BY sealed,original_name",id));r.put("reassignments",rows("SELECT h.*,u.name previous_approver_name,v.name approver_name,a.name actor_name FROM approval_reassignments h LEFT JOIN users u ON u.id=h.previous_approver_id JOIN users v ON v.id=h.approver_id JOIN users a ON a.id=h.actor_id WHERE business='CONTRACT' AND target_id=? ORDER BY h.id",id));r.put("steps",rows("SELECT s.*,u.name approver_name,v.name actor_name FROM contract_steps s LEFT JOIN users u ON u.id=s.approver_id LEFT JOIN users v ON v.id=s.actor_id WHERE contract_id=? ORDER BY revision,step",id));return r;}
   record Filter(String status,String type,Long departmentId,String counterparty,LocalDate expiryFrom,LocalDate expiryTo,String scope,int offset,int limit){}
   String where(Actor a,Filter f,List<Object> args){
     ApiException.require(f.offset()>=0&&f.limit()>0&&f.limit()<=200,"分页参数无效，每页最多200条");

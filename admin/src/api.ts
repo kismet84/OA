@@ -61,6 +61,7 @@ export async function download(path: string, filename: string) {
 export const labels: Record<string, string> = {
   RESERVE_VISITOR: '预约访客', CANCEL_VISITOR: '取消访客预约', CHECKIN_VISITOR: '访客签到', CHECKOUT_VISITOR: '访客签离', REGISTER_TEMP_VISITOR: '临时来访登记', EXPORT_VISITORS: '导出访客台账',
   PUBLISH_DOCUMENT:'发布文档', UPDATE_DOCUMENT:'修改文档', WITHDRAW_DOCUMENT:'下架文档', REPUBLISH_DOCUMENT:'重新上架文档',
+  LIVE:'现场实时', WARMUP_CACHE:'预热缓存', LAST_KNOWN:'系统缓存', STALE_FALLBACK:'超时旧缓存', UNKNOWN:'未知/历史记录', REASSIGN_CONTRACT:'改派合同审批人', REASSIGN_ASSET:'改派资产审批人', REASSIGN_REQUEST:'改派审批人',
   CONTRACT:'合同', SAVE_CONTRACT:'登记合同', DELETE_CONTRACT:'删除合同草稿', SUBMIT_CONTRACT:'提交合同', APPROVE_CONTRACT:'合同通过', REJECT_CONTRACT:'合同驳回', WITHDRAW_CONTRACT:'撤回合同', ARCHIVE_CONTRACT:'归档合同', TERMINATE_CONTRACT:'终止合同', EXPORT_CONTRACTS:'导出合同', PREVIEW_CONTRACT_FILE:'预览合同附件', DOWNLOAD_CONTRACT_FILE:'下载合同附件',
   ASSET: '资产领用', READY:'待发放', ISSUED:'已发放', IN_USE:'使用中', RETURNED:'已归还',
   CREATE_ASSET_CATEGORY:'新增资产分类', UPDATE_ASSET_CATEGORY:'编辑资产分类', SAVE_ASSET:'登记资产', ADJUST_ASSET:'调整资产', APPLY_ASSET:'申请领用', APPROVE_ASSET:'审批领用', ISSUE_ASSET:'发放资产', WITHDRAW_ASSET:'撤回领用', REQUEST_ASSET_RETURN:'登记归还', CONFIRM_ASSET_RETURN:'确认归还',
@@ -127,7 +128,7 @@ export function display(v: unknown): string {
   if (v == null || v === '') return '—';
   if (typeof v === 'boolean') return v ? '是' : '否';
   const s = String(v);
-  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.slice(0, 19).replace('T', ' ');
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) { const d=new Date(s); return Number.isNaN(d.getTime())?s:s.match(/Z$|[+-]\d\d:\d\d$/)?d.toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false}):s.slice(0,19).replace('T',' '); }
   return labels[s] || s;
 }
 

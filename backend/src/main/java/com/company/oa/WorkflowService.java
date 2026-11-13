@@ -67,7 +67,7 @@ public class WorkflowService {
 
   @Transactional
   public long submit(Application in, Actor actor) {
-    db.execute("SELECT pg_advisory_xact_lock(20261111)");
+    ApprovalSupport.organizationSnapshot(db);
     long user = in.userId() == null ? actor.id() : in.userId();
     if (user != actor.id()) actor.requireAdmin();
     var u = lockedUser(user);
@@ -256,11 +256,12 @@ public class WorkflowService {
         && !(a.has("FINANCE") && r.get("kind").equals("EXPENSE") && r.get("status").equals("APPROVED"))
         && ((Number) r.get("user_id")).longValue() != a.id()
         && db.queryForObject(
-                "SELECT count(*) FROM approval_steps WHERE request_id=? AND approver_id=?",
+                "SELECT count(*) FROM approval_steps WHERE request_id=? AND (approver_id=? OR actor_id=?)",
                 Long.class,
                 id,
-                a.id())
+                a.id(), a.id())
             == 0
+        && db.queryForObject("SELECT count(*) FROM approval_reassignments WHERE business='REQUEST' AND target_id=? AND (previous_approver_id=? OR approver_id=?)",Long.class,id,a.id(),a.id())==0
         && db.queryForObject("SELECT count(*) FROM request_cc WHERE request_id=? AND user_id=?", Long.class, id, a.id()) == 0)
       throw new ApiException(403, "无权查看该审批单");
     return r;
@@ -270,11 +271,7 @@ public class WorkflowService {
 
   @Transactional
   public void decide(long id, Decision in, Actor actor) {
-    db.execute("SELECT pg_advisory_xact_lock(20261111)");
-    if (!actor.admin()
-        && !actor.has("SUPERVISOR")
-        && !actor.has("DEPT_HEAD")
-        && !actor.has("FINANCE")) throw new ApiException(403, "当前角色没有审批权限");
+    db.queryForList("SELECT pg_advisory_xact_lock(20261113,hashint8(?))",id);
     var r = get(id, actor, true);
     ApiException.require(r.get("status").equals("PENDING"), "该单据已处理");
     long owner = ((Number) r.get("user_id")).longValue();
@@ -286,7 +283,7 @@ public class WorkflowService {
             r.get("current_step"));
     if (!actor.admin() && ((Number) step.get("approver_id")).longValue() != actor.id())
       throw new ApiException(403, "当前不轮到您审批");
-    auth.user(((Number) step.get("approver_id")).longValue());
+    if (!actor.admin()) auth.user(((Number) step.get("approver_id")).longValue());
     ApiException.require(
         in.approve() || (in.comment() != null && !in.comment().isBlank()), "驳回必须填写意见");
     lockedUser(owner);
@@ -311,15 +308,16 @@ public class WorkflowService {
     if (finalApproval && r.get("kind").equals("CORRECTION")) {
       var at = ((Timestamp) r.get("start_at")).toLocalDateTime();
       checkCorrection(owner, at, (String) r.get("punch_kind"), id);
-      db.update("INSERT INTO punches(user_id,punched_at,kind,correction_request_id) VALUES(?,?,?,?)", owner, at, r.get("punch_kind"), id);
+      db.update("INSERT INTO punches(user_id,punched_at,kind,correction_request_id,location_source) VALUES(?,?,?,?,'CORRECTION')", owner, at, r.get("punch_kind"), id);
     }
     if (finalApproval && r.get("kind").equals("OVERTIME")) {
       changeBalance(owner, compType(), ((Timestamp) r.get("start_at")).toLocalDateTime().getYear(), (BigDecimal) r.get("credited_days"), id, actor.id(), "OVERTIME_APPROVED");
     }
     db.update(
-        "UPDATE approval_steps SET status=?,comment=?,acted_at=? WHERE request_id=? AND step=?",
+        "UPDATE approval_steps SET status=?,comment=?,actor_id=?,acted_at=? WHERE request_id=? AND step=?",
         in.approve() ? "APPROVED" : "REJECTED",
-        in.comment(),
+        actor.admin()?ApprovalSupport.proxyNote(in.comment()):in.comment(),
+        actor.id(),
         LocalDateTime.now(clock),
         id,
         r.get("current_step"));
@@ -341,6 +339,18 @@ public class WorkflowService {
     auth.audit(actor.id(), in.approve() ? "APPROVE_REQUEST" : "REJECT_REQUEST", id);
   }
 
+  @Transactional
+  public void reassign(long id, ApprovalSupport.Reassign in, Actor actor) {
+    actor.requireAdmin();ApprovalSupport.organizationSnapshot(db);
+    var r=get(id,actor,true);
+    ApiException.require(r.get("status").equals("PENDING"),"仅待审批申请可改派");
+    var s=db.queryForMap("SELECT * FROM approval_steps WHERE request_id=? AND step=?",id,r.get("current_step"));
+    ApprovalSupport.reassign(db,actor,"REQUEST",id,0,((Number)r.get("current_step")).intValue(),(Long)s.get("approver_id"),((Number)r.get("user_id")).longValue(),in);
+    db.update("UPDATE approval_steps SET approver_id=? WHERE request_id=? AND step=?",in.approverId(),id,r.get("current_step"));
+    notifications.write(in.approverId(),"审批单 #"+id+" 已改派给您审批："+in.note(),"request_id",id);
+    auth.audit(actor.id(),"REASSIGN_REQUEST",id);
+  }
+
   public record Payment(@NotNull @Pattern(regexp = "PAID|UNPAID") String status,
       @Size(max = 1000) String reason) {}
 
@@ -359,7 +369,7 @@ public class WorkflowService {
 
   @Transactional
   public void cancel(long id, Actor actor) {
-    db.execute("SELECT pg_advisory_xact_lock(20261111)");
+    db.queryForList("SELECT pg_advisory_xact_lock(20261113,hashint8(?))",id);
     var r = get(id, actor, true);
     long owner = ((Number) r.get("user_id")).longValue();
     if (owner != actor.id()) actor.requireAdmin();

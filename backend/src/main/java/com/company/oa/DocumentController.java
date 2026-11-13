@@ -14,8 +14,11 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/documents")
 class DocumentController {
+  @org.springframework.beans.factory.annotation.Autowired NotificationService notifications;
+
   @org.springframework.beans.factory.annotation.Autowired
-  NotificationService notifications;
+  org.springframework.transaction.PlatformTransactionManager transactions;
+
   final JdbcTemplate db;
   final Auth auth;
   final AttachmentController storage;
@@ -73,7 +76,7 @@ class DocumentController {
           "部门不存在");
     ApiException.require(
         new HashSet<>(in.attachmentIds()).size() == in.attachmentIds().size(), "附件不可重复");
-    for (UUID file : in.attachmentIds()) {
+    for (UUID file : in.attachmentIds().stream().sorted().toList()) {
       var rows =
           db.queryForList(
               "SELECT * FROM attachments WHERE id=? AND user_id=? FOR UPDATE", file, a.id());
@@ -85,7 +88,8 @@ class DocumentController {
                   "SELECT (SELECT count(*) FROM announcement_attachments WHERE"
                       + " attachment_id=?)+(SELECT count(*) FROM requests WHERE"
                       + " attachment_id=?)+(SELECT count(*) FROM expense_attachments WHERE"
-                      + " attachment_id=?)+(SELECT count(*) FROM contract_files WHERE attachment_id=?)",
+                      + " attachment_id=?)+(SELECT count(*) FROM contract_files WHERE"
+                      + " attachment_id=?)",
                   Long.class,
                   file,
                   file,
@@ -93,6 +97,14 @@ class DocumentController {
                   file)
               == 0,
           "该附件已用于公告、审批或合同，请为文档重新上传");
+    }
+  }
+
+  void preflight(List<UUID> files, Actor actor) {
+    for (UUID file : files) {
+      var rows =
+          db.queryForList("SELECT * FROM attachments WHERE id=? AND user_id=?", file, actor.id());
+      ApiException.require(!rows.isEmpty(), "附件不存在或不是您上传的文件");
       media.pages(storage.path(file), (String) rows.getFirst().get("media_type"));
     }
   }
@@ -108,64 +120,69 @@ class DocumentController {
   void notify(long id, Set<Long> users, Actor a) {
     String title = db.queryForObject("SELECT title FROM documents WHERE id=?", String.class, id);
     for (long user : users)
-      if (user != a.id())
-        notifications.write(user,
-            "文档资料已发布：" + title, "document_id",
-            id);
+      if (user != a.id()) notifications.write(user, "文档资料已发布：" + title, "document_id", id);
   }
 
   @PostMapping
-  @Transactional
   Object publish(@Valid @RequestBody Publication in, HttpServletRequest req) {
     var a = Auth.actor(req);
     a.requireAdmin();
-    db.execute("SELECT pg_advisory_xact_lock(20261111)");
-    validate(in, a);
-    long id =
-        db.queryForObject(
-            "INSERT INTO"
-                + " documents(title,description,category,department_id,publisher_id,allow_download)"
-                + " VALUES(?,?,?,?,?,?) RETURNING id",
-            Long.class,
-            in.title().trim(),
-            in.description(),
-            in.category(),
-            in.departmentId(),
-            a.id(),
-            in.allowDownload() == null || in.allowDownload());
-    bind(id, in.attachmentIds());
-    notify(id, recipients(id), a);
-    auth.audit(a.id(), "PUBLISH_DOCUMENT", id);
-    return Map.of("id", id);
+    preflight(in.attachmentIds(), a);
+    return new org.springframework.transaction.support.TransactionTemplate(transactions)
+        .execute(
+            tx -> {
+              ApprovalSupport.organizationSnapshot(db);
+              validate(in, a);
+              long id =
+                  db.queryForObject(
+                      "INSERT INTO"
+                          + " documents(title,description,category,department_id,publisher_id,allow_download)"
+                          + " VALUES(?,?,?,?,?,?) RETURNING id",
+                      Long.class,
+                      in.title().trim(),
+                      in.description(),
+                      in.category(),
+                      in.departmentId(),
+                      a.id(),
+                      in.allowDownload() == null || in.allowDownload());
+              bind(id, in.attachmentIds());
+              notify(id, recipients(id), a);
+              auth.audit(a.id(), "PUBLISH_DOCUMENT", id);
+              return Map.of("id", id);
+            });
   }
 
   @PutMapping("/{id}")
-  @Transactional
   Object update(@PathVariable long id, @Valid @RequestBody Publication in, HttpServletRequest req) {
     var a = Auth.actor(req);
     a.requireAdmin();
-    db.execute("SELECT pg_advisory_xact_lock(20261111)");
-    var old = authorized(id, a);
-    var before = recipients(id);
-    validate(in, a);
-    db.update(
-        "UPDATE documents SET"
-            + " title=?,description=?,category=?,department_id=?,allow_download=?,updated_at=localtimestamp"
-            + " WHERE id=?",
-        in.title().trim(),
-        in.description(),
-        in.category(),
-        in.departmentId(),
-        in.allowDownload() == null || in.allowDownload(),
-        id);
-    bind(id, in.attachmentIds());
-    if (old.get("status").equals("PUBLISHED")) {
-      var added = recipients(id);
-      added.removeAll(before);
-      notify(id, added, a);
-    }
-    auth.audit(a.id(), "UPDATE_DOCUMENT", id);
-    return Map.of("id", id);
+    preflight(in.attachmentIds(), a);
+    return new org.springframework.transaction.support.TransactionTemplate(transactions)
+        .execute(
+            tx -> {
+              ApprovalSupport.organizationSnapshot(db);
+              var old = authorized(id, a);
+              var before = recipients(id);
+              validate(in, a);
+              db.update(
+                  "UPDATE documents SET"
+                      + " title=?,description=?,category=?,department_id=?,allow_download=?,updated_at=localtimestamp"
+                      + " WHERE id=?",
+                  in.title().trim(),
+                  in.description(),
+                  in.category(),
+                  in.departmentId(),
+                  in.allowDownload() == null || in.allowDownload(),
+                  id);
+              bind(id, in.attachmentIds());
+              if (old.get("status").equals("PUBLISHED")) {
+                var added = recipients(id);
+                added.removeAll(before);
+                notify(id, added, a);
+              }
+              auth.audit(a.id(), "UPDATE_DOCUMENT", id);
+              return Map.of("id", id);
+            });
   }
 
   @PostMapping("/{id}/withdraw")
@@ -183,24 +200,29 @@ class DocumentController {
   }
 
   @PostMapping("/{id}/republish")
-  @Transactional
   Object republish(@PathVariable long id, HttpServletRequest req) {
     var a = Auth.actor(req);
     a.requireAdmin();
-    db.execute("SELECT pg_advisory_xact_lock(20261111)");
-    authorized(id, a);
-    for (var f : files(id))
+    var checked = files(id);
+    for (var f : checked)
       media.pages(storage.path((UUID) f.get("id")), (String) f.get("media_type"));
-    if (db.update(
-            "UPDATE documents SET"
-                + " status='PUBLISHED',published_at=localtimestamp,updated_at=localtimestamp WHERE"
-                + " id=? AND status='WITHDRAWN'",
-            id)
-        > 0) {
-      notify(id, recipients(id), a);
-      auth.audit(a.id(), "REPUBLISH_DOCUMENT", id);
-    }
-    return Map.of("message", "文档已上架");
+    return new org.springframework.transaction.support.TransactionTemplate(transactions)
+        .execute(
+            tx -> {
+              ApprovalSupport.organizationSnapshot(db);
+              authorized(id, a);
+              ApiException.require(checked.equals(files(id)), "文档附件已变更，请刷新后重新上架");
+              if (db.update(
+                      "UPDATE documents SET"
+                          + " status='PUBLISHED',published_at=localtimestamp,updated_at=localtimestamp"
+                          + " WHERE id=? AND status='WITHDRAWN'",
+                      id)
+                  > 0) {
+                notify(id, recipients(id), a);
+                auth.audit(a.id(), "REPUBLISH_DOCUMENT", id);
+              }
+              return Map.of("message", "文档已上架");
+            });
   }
 
   @GetMapping
@@ -284,20 +306,22 @@ class DocumentController {
   }
 
   @GetMapping("/{id}/attachments/{file}/preview")
-  @Transactional
   Object previewInfo(@PathVariable long id, @PathVariable UUID file, HttpServletRequest req) {
     var a = Auth.actor(req);
     authorized(id, a);
     var f = file(id, file);
-    return Map.of(
-        "pages",
-        media.pages(storage.path(file), (String) f.get("media_type")),
-        "watermark",
-        mark(a));
+    int count = media.pages(storage.path(file), (String) f.get("media_type"));
+    return new org.springframework.transaction.support.TransactionTemplate(transactions)
+        .execute(
+            tx -> {
+              ApprovalSupport.organizationSnapshot(db);
+              authorized(id, a);
+              file(id, file);
+              return Map.of("pages", count, "watermark", mark(a));
+            });
   }
 
   @GetMapping("/{id}/attachments/{file}/pages/{page}")
-  @Transactional
   ResponseEntity<byte[]> preview(
       @PathVariable long id,
       @PathVariable UUID file,
@@ -310,15 +334,22 @@ class DocumentController {
     int count = media.pages(path, (String) f.get("media_type"));
     ApiException.require(page >= 1 && page <= count, "预览页码无效");
     byte[] bytes = media.preview(path, (String) f.get("media_type"), page, mark(a));
-    db.update(
-        "INSERT INTO document_receipts(document_id,user_id) VALUES(?,?) ON CONFLICT DO NOTHING",
-        id,
-        a.id());
-    return response(bytes, "image/png", "preview.png", false);
+    return new org.springframework.transaction.support.TransactionTemplate(transactions)
+        .execute(
+            tx -> {
+              ApprovalSupport.organizationSnapshot(db);
+              authorized(id, a);
+              file(id, file);
+              db.update(
+                  "INSERT INTO document_receipts(document_id,user_id) VALUES(?,?) ON CONFLICT DO"
+                      + " NOTHING",
+                  id,
+                  a.id());
+              return response(bytes, "image/png", "preview.png", false);
+            });
   }
 
   @GetMapping("/{id}/attachments/{file}/download")
-  @Transactional
   ResponseEntity<byte[]> download(
       @PathVariable long id, @PathVariable UUID file, HttpServletRequest req) {
     var a = Auth.actor(req);
@@ -329,11 +360,21 @@ class DocumentController {
     String type = (String) f.get("media_type");
     int count = media.pages(path, type);
     boolean pdf = type.equals("application/pdf");
-    return response(
-        media.download(path, type, count, mark(a)),
-        pdf ? type : "image/png",
-        f.get("original_name") + "-水印." + (pdf ? "pdf" : "png"),
-        true);
+    byte[] bytes = media.download(path, type, count, mark(a));
+    return new org.springframework.transaction.support.TransactionTemplate(transactions)
+        .execute(
+            tx -> {
+              ApprovalSupport.organizationSnapshot(db);
+              var current = authorized(id, a);
+              file(id, file);
+              if (!Boolean.TRUE.equals(current.get("allow_download")))
+                throw new ApiException(403, "该文档仅允许预览，禁止下载");
+              return response(
+                  bytes,
+                  pdf ? type : "image/png",
+                  f.get("original_name") + "-水印." + (pdf ? "pdf" : "png"),
+                  true);
+            });
   }
 
   ResponseEntity<byte[]> response(byte[] bytes, String type, String name, boolean attachment) {

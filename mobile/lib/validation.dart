@@ -28,6 +28,8 @@ Json punchPayload(
   double? longitude,
   double? accuracy, {
   String? ssid,
+  DateTime? locatedAt,
+  String? locationSource,
 }) {
   if (!['NORMAL', 'FIELD'].contains(kind) ||
       latitude == null ||
@@ -42,12 +44,26 @@ Json punchPayload(
       accuracy > 100000) {
     throw ApiError('必须成功获取有效定位后再提交');
   }
+  if (locationSource != null &&
+      (![
+            'LIVE',
+            'WARMUP_CACHE',
+            'LAST_KNOWN',
+            'STALE_FALLBACK',
+            'UNKNOWN',
+          ].contains(locationSource) ||
+          locatedAt == null ||
+          (kind == 'FIELD' && locationSource == 'STALE_FALLBACK'))) {
+    throw ApiError('定位采集时间或来源无效');
+  }
   return {
     'kind': kind,
     'latitude': latitude,
     'longitude': longitude,
     'accuracy': accuracy,
     if (ssid != null && ssid.isNotEmpty) 'ssid': ssid,
+    if (locatedAt != null) 'locatedAt': locatedAt.toUtc().toIso8601String(),
+    'locationSource': ?locationSource,
   };
 }
 
@@ -166,3 +182,14 @@ bool canCancelApproved(Json detail, {DateTime? now}) {
   return start != null &&
       start.toUtc().isAfter((now ?? DateTime.now()).toUtc());
 }
+
+String locationSourceLabel(Object? source) =>
+    const {
+      'LIVE': '现场实时',
+      'WARMUP_CACHE': '预热缓存',
+      'LAST_KNOWN': '使用最近一次定位（系统缓存）',
+      'STALE_FALLBACK': '使用最近一次定位（超时旧缓存）',
+      'CORRECTION': '补卡',
+      'UNKNOWN': '未知/历史记录',
+    }[source] ??
+    '未知/历史记录';

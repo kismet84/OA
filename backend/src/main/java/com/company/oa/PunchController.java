@@ -29,12 +29,19 @@ class PunchService {
       @NotNull @DecimalMin("-90") @DecimalMax("90") Double latitude,
       @NotNull @DecimalMin("-180") @DecimalMax("180") Double longitude,
       @NotNull @DecimalMin(value = "0", inclusive = false) @DecimalMax("100000") Double accuracy,
-      @Size(max = 200) String ssid) {}
+      @Size(max = 200) String ssid,
+      OffsetDateTime locatedAt,
+      @Pattern(regexp = "LIVE|WARMUP_CACHE|LAST_KNOWN|STALE_FALLBACK|UNKNOWN")
+          String locationSource) {
+    Punch(String kind, Double latitude, Double longitude, Double accuracy, String ssid) {
+      this(kind, latitude, longitude, accuracy, ssid, null, null);
+    }
+  }
 
   @Transactional
   long record(Actor actor, long user, Punch input, String ip, boolean simulated) {
     if (user != actor.id()) actor.requireAdmin();
-    db.execute("SELECT pg_advisory_xact_lock(20261111)");
+    db.queryForList("SELECT pg_advisory_xact_lock(20261112,hashint8(?))", user);
     db.queryForList("SELECT id FROM users WHERE id=? FOR UPDATE", user);
     auth.user(user); // Disabled accounts cannot punch, including in the simulator.
     ApiException.require(
@@ -42,6 +49,21 @@ class PunchService {
             && Double.isFinite(input.longitude())
             && Double.isFinite(input.accuracy()),
         "必须成功获取有效定位");
+    String source = input.locationSource() == null ? "UNKNOWN" : input.locationSource();
+    ApiException.require(
+        Set.of("LIVE", "WARMUP_CACHE", "LAST_KNOWN", "STALE_FALLBACK", "UNKNOWN").contains(source),
+        "定位来源无效");
+    ApiException.require(source.equals("UNKNOWN") || input.locatedAt() != null, "请提供定位采集时间");
+    ApiException.require(
+        !source.equals("STALE_FALLBACK") || input.kind().equals("NORMAL"), "外出打卡不允许使用超时旧缓存");
+    if (input.locatedAt() != null) {
+      var age = Duration.between(input.locatedAt().toInstant(), clock.instant());
+      ApiException.require(
+          age.compareTo(Duration.ofMinutes(-2)) >= 0 && age.compareTo(Duration.ofHours(24)) <= 0,
+          "定位采集时间无效或超过24小时");
+      if (Set.of("WARMUP_CACHE", "LAST_KNOWN").contains(source))
+        ApiException.require(age.compareTo(Duration.ofMinutes(30)) <= 0, "缓存定位超过30分钟");
+    }
     LocalDateTime now = LocalDateTime.now(clock);
     if (input.kind().equals("NORMAL")) {
       ApiException.require(
@@ -68,8 +90,8 @@ class PunchService {
     Long id =
         db.queryForObject(
             "INSERT INTO"
-                + " punches(user_id,punched_at,kind,latitude,longitude,accuracy,ssid,exit_ip,simulated)"
-                + " VALUES(?,?,?,?,?,?,?,?,?) RETURNING id",
+                + " punches(user_id,punched_at,kind,latitude,longitude,accuracy,ssid,exit_ip,simulated,located_at,location_source)"
+                + " VALUES(?,?,?,?,?,?,?,?,?,?,?) RETURNING id",
             Long.class,
             user,
             now,
@@ -79,7 +101,9 @@ class PunchService {
             input.accuracy(),
             input.ssid(),
             ip,
-            simulated);
+            simulated,
+            input.locatedAt(),
+            source);
     if (simulated) auth.audit(actor.id(), "SIMULATE_PUNCH", id);
     return id;
   }
@@ -128,8 +152,14 @@ class PunchController {
       HttpServletRequest req) {
     var q = query(Auth.actor(req), userId, from, to, kind);
     q.params().add(Math.max(0, offset));
-    return db.queryForList(
-        q.sql() + " ORDER BY p.id DESC LIMIT 200 OFFSET ?", q.params().toArray());
+    var rows =
+        db.queryForList(q.sql() + " ORDER BY p.id DESC LIMIT 200 OFFSET ?", q.params().toArray());
+    rows.forEach(
+        row -> {
+          row.put("locatedAt", row.get("located_at"));
+          row.put("locationSource", row.get("location_source"));
+        });
+    return rows;
   }
 
   RequestController.Query query(

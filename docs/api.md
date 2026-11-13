@@ -620,3 +620,30 @@ cd mobile
 ```
 
 Flutter `push_test.dart` 用假设备和 mock HTTP 验证权限拒绝、登记、刷新、退出竞态及前后台点击，不连接 Firebase。真实手机投递需要后续在已配置服务端凭证的开发环境，用授权安卓设备验收；本次无需重打 APK、部署或修改任何苹果配置。
+
+### 外部审查修复：审批快照与管理员处理
+
+组织调整只影响新提交的审批；合同按 `contract_steps` 当前版本、当前步骤的 `approver_id` 授权，未指定人员的终审仍由财务或管理员处理。合同可见范围包括经办人、历史指派/实际审批人、改派前后人员、管理员、财务及原部门查看范围。改派前人员保留历史查看权限，失去当前步待办和审批权。审批列表、消息待办与详情使用同一当前步骤条件，不能审批自己的申请。
+
+- `POST /api/contracts/{id}/reassign`、`POST /api/assets/requests/{id}/reassign`、`POST /api/requests/{id}/reassign`：仅 ADMIN，当前单据须 PENDING。请求 `{ "approverId": 123, "note": "人员交接" }`；说明必填，最多 1000 字。目标必须在职有效且不是申请人或当前审批人；只改当前待审步骤，后续步骤快照保持不变。通过统一 NotificationService 写消息并触发事务提交后的 FCM。
+- `POST /api/contracts/{id}/proxy-approve`、`POST /api/assets/requests/{id}/proxy-approve`：仅 ADMIN，`{ "approved": true, "note": "交接代办" }`。驳回必须说明原因；不可自批。合同推进下一级或进入待归档/驳回，资产进入 READY/REJECTED。
+- 一般工作流仍使用 `POST /api/requests/{id}/decision`，字段为 `approve`、`comment`；ADMIN 可代当前步骤审批，原审批人停用也可处理。步骤新增 `actor_id`、`actor_name`，管理员操作自动加「管理员代批」备注。被改派的有效员工无需额外审批角色即可处理自己的步骤。
+- 合同、资产、一般审批详情新增 `reassignments`（按事件顺序）：`id`、`business`、`target_id`、`revision`、`step`、`previous_approver_id/name`、`approver_id/name`、`actor_id/name`、`note`、`created_at`。原步骤指派历史不会被覆盖。资产新增 `approval_actor_id`、`approval_acted_at`（实际操作人与时间）；合同使用既有 `actor_id/name`。
+- 停用员工前检查在途一般审批、当前版本合同当前及后续待审步骤、PENDING 资产领用，同时保留组织负责人、下属、财务配置和末位管理员检查。需先改派、代批或处理完对应单据。资产 READY/归还发放为财务/管理员角色池，不绑定某一账号。
+
+### 打卡定位溯源（V13）
+
+`POST /api/punches` 及开发模拟接口的 `punch` 对象新增可选字段：
+
+| 字段 | 含义 |
+| --- | --- |
+| `locatedAt` | ISO-8601 带时区时间戳，新客户端传 UTC `Z`；记录真实定位采集时刻 |
+| `locationSource` | `LIVE` 现场实时（含 Android LocationManager 新定位）、`WARMUP_CACHE` 预热缓存、`LAST_KNOWN` 系统最近定位、`STALE_FALLBACK` 超时旧缓存、`UNKNOWN` 未知/旧客户端 |
+
+声明具体来源时必须传采集时间；时间不能超过未来 2 分钟或过去 24 小时。预热和系统最近定位最多 30 分钟；超时旧缓存仅正常打卡允许，出勤禁止。来源白名单校验；旧客户端未传时保存 `UNKNOWN`/NULL，不影响原网络与外出审批校验。补卡审批生成 `CORRECTION` 来源，无定位采集时间；客户端不能自行声明补卡来源。
+
+打卡列表与 CSV 返回 `located_at`、`location_source`，列表同时提供 `locatedAt`、`locationSource` 别名。历史记录可为 NULL，显示未知/历史记录；定位来源与「现场打卡/补卡」记录类型分列。网页获取浏览器实时定位（禁止复用缓存），提交 UTC 采集时间及 `LIVE`；Flutter 使用原始 Position.timestamp，预热缓存保持原时间，提交前显示来源与采集时间供确认。
+
+### 写事务锁隔离
+
+打卡使用 `(20261112, hashint8(userId))` 事务锁，一般审批决定/撤回使用 `(20261113, hashint8(requestId))`；同员工余额仍通过用户行锁串行。组织维护使用独立排他键 `20261114`；读取审批链、改派、公告/文档接收范围快照使用该键的共享锁，防止停用与新指派交错。共享快照之间可以并行，不会阻塞打卡。文档文件解析在开启数据库写事务及获取锁前完成，事务内重新检查附件权限和绑定；重新上架核对附件未被替换。合同与资产写操作使用既有单据行锁，发放按资产 ID 排序加锁；文档附件按 UUID 排序加锁。日程 `630206` 和访客 `110011` 保留各自独立的业务锁，不与其他业务共用。每个路径最多一把排他业务 advisory lock，无交叉命名空间反序获取。

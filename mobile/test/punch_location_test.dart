@@ -39,6 +39,7 @@ class FakeLocation extends GeolocatorPlatform {
   Position? cached;
   int cacheCalls = 0;
   final currentSettings = <LocationSettings?>[];
+  final warmup = StreamController<Position>.broadcast();
   @override
   Future<bool> isLocationServiceEnabled() async => enabled;
   @override
@@ -47,7 +48,7 @@ class FakeLocation extends GeolocatorPlatform {
   Future<LocationPermission> requestPermission() async => permission;
   @override
   Stream<Position> getPositionStream({LocationSettings? locationSettings}) =>
-      const Stream.empty();
+      warmup.stream;
   @override
   Future<Position> getCurrentPosition({
     LocationSettings? locationSettings,
@@ -108,6 +109,8 @@ void main() {
     final result = await getPunchLocation();
     expect(result.position, location.current);
     expect(result.usedLastKnown, false);
+    expect(result.locationSource, 'LIVE');
+    expect(result.locatedAt, result.position.timestamp.toUtc());
     expect(location.cacheCalls, 0);
     expect(location.currentSettings, hasLength(1));
   });
@@ -118,6 +121,8 @@ void main() {
     final result = await getPunchLocation();
     expect(result.position, location.locationManagerCurrent);
     expect(result.usedLastKnown, false);
+    expect(result.locationSource, 'LIVE');
+    expect(result.locatedAt, result.position.timestamp.toUtc());
     expect(location.cacheCalls, 0);
     expect(location.currentSettings, hasLength(2));
     expect(location.currentSettings.last, isA<AndroidSettings>());
@@ -130,7 +135,10 @@ void main() {
     ]) {
       location.error = error;
       location.locationManagerError = error;
-      location.cached = position(accuracy: 200, age: const Duration(minutes: 29));
+      location.cached = position(
+        accuracy: 200,
+        age: const Duration(minutes: 29),
+      );
       final result = await getPunchLocation(allowStaleLastKnown: false);
       expect(result.position, location.cached);
       expect(result.usedLastKnown, true);
@@ -144,14 +152,11 @@ void main() {
     final normal = await getPunchLocation();
     expect(normal.position, location.cached);
     expect(normal.usedLastKnown, true);
+    expect(normal.locationSource, 'STALE_FALLBACK');
     await expectLater(
       getPunchLocation(allowStaleLastKnown: false),
       throwsA(
-        isA<ApiError>().having(
-          (e) => e.message,
-          'message',
-          '定位超时，请到信号较好的地方重试',
-        ),
+        isA<ApiError>().having((e) => e.message, 'message', '定位超时，请到信号较好的地方重试'),
       ),
     );
   });
@@ -229,6 +234,18 @@ void main() {
     expect(location.cacheCalls, 0);
   });
 
+  test('预热缓存保留采集时刻并明确来源', () async {
+    startPunchLocationWarmup();
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    final cached = position(age: const Duration(minutes: 20));
+    location.warmup.add(cached);
+    await Future<void>.delayed(Duration.zero);
+    final result = await getPunchLocation();
+    expect(result.locationSource, 'WARMUP_CACHE');
+    expect(result.locatedAt, cached.timestamp.toUtc());
+    expect(location.currentSettings, isEmpty);
+  });
+
   testWidgets('超时不提交；再次定位使用缓存时显示来源和坐标，SSID失败仍可提交', (tester) async {
     location.error = TimeoutException('test');
     location.locationManagerError = TimeoutException('test');
@@ -249,10 +266,19 @@ void main() {
     expect(submitted, isNull);
     location.cached = position();
     await tester.tap(find.text('获取定位并打卡'));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.textContaining('使用最近一次定位'), findsWidgets);
+    expect(submitted, isNull);
+    await tester.tap(find.text('确认打卡'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('使用最近一次定位'), findsOneWidget);
     expect(find.textContaining('纬度 31.230000，经度 121.470000'), findsOneWidget);
     expect(find.textContaining('精度 20.0 米'), findsOneWidget);
+    expect(submitted?['locationSource'], 'LAST_KNOWN');
+    expect(
+      submitted?['locatedAt'],
+      location.cached!.timestamp.toUtc().toIso8601String(),
+    );
     expect(submitted?['latitude'], 31.23);
     expect(submitted?['accuracy'], 20);
     expect(submitted?.containsKey('ssid'), false);

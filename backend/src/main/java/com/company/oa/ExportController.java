@@ -33,6 +33,8 @@ class ExportController {
           Map.entry("annual_limit", "年度上限"),
           Map.entry("created_at", "创建时间"),
           Map.entry("punched_at", "打卡时间"),
+          Map.entry("located_at", "定位采集时间"), Map.entry("locatedAt", "定位采集时间（UTC）"),
+          Map.entry("location_source", "定位来源"), Map.entry("locationSource", "定位来源"),
           Map.entry("latitude", "纬度"),
           Map.entry("longitude", "经度"),
           Map.entry("accuracy", "精度（米）"),
@@ -45,6 +47,8 @@ class ExportController {
           Map.entry("simulated", "模拟记录"));
   static final Map<String, String> VALUES =
       Map.ofEntries(
+          Map.entry("LIVE", "现场实时"), Map.entry("WARMUP_CACHE", "预热缓存"),
+          Map.entry("LAST_KNOWN", "系统缓存"), Map.entry("STALE_FALLBACK", "超时旧缓存"), Map.entry("UNKNOWN", "未知/历史记录"),
           Map.entry("LEAVE", "请假"),
           Map.entry("OVERTIME", "加班"),
           Map.entry("CORRECTION", "补卡"),
@@ -61,7 +65,7 @@ class ExportController {
 
   static String value(String key, Object v) {
     if (v instanceof Boolean b) return b ? "是" : "否";
-    if (v != null && Set.of("kind", "status", "punch_kind").contains(key))
+    if (v != null && Set.of("kind", "status", "punch_kind", "location_source", "locationSource").contains(key))
       return VALUES.getOrDefault(v.toString(), v.toString());
     return v == null ? "" : v.toString();
   }

@@ -20,7 +20,7 @@ void main() {
           'finance': finance,
         }.entries) {
           await entry.value.login(
-            '${prefix}${entry.key}',
+            '$prefix${entry.key}',
             'Asset@2026Changed',
             '合同真实接口验收',
             'test',

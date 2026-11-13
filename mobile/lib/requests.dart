@@ -569,12 +569,16 @@ class _DetailState extends State<RequestDetailPage>
                       .join('、'),
           ),
           section('审批记录'),
+          for (final h in records(detail!['reassignments'] ?? const []))
+            Text(
+              '管理员 ${h['actor_name']} 改派：${h['previous_approver_name']} → ${h['approver_name']} · ${h['note']}',
+            ),
           for (final s in records(detail!['steps']))
             Card(
               child: ListTile(
                 title: Text('${s['approver_name']} · ${textOf(s['status'])}'),
                 subtitle: Text(
-                  '${s['comment'] ?? '暂无意见'}\n${timeOf(s['acted_at'])}',
+                  '${s['actor_name'] != null ? '实际操作：${s['actor_name']} · ' : ''}${s['comment'] ?? '暂无意见'}\n${timeOf(s['acted_at'])}',
                 ),
               ),
             ),

@@ -309,6 +309,11 @@ class _AssetDetailState extends State<AssetDetailPage>
             Text(
               '发放：${timeOf(d['issued_at'])} · 归还：${timeOf(d['returned_at'])}',
             ),
+            for (final h in records(d['reassignments'] ?? const []))
+              Text(
+                '管理员 ${h['actor_name']} 改派：${h['previous_approver_name']} → ${h['approver_name']} · ${h['note']}',
+              ),
+            Text('实际审批人：${d['approval_actor_name'] ?? '未处理/历史记录'}'),
             Text('审批说明：${d['approval_note'] ?? '无'}'),
             Text('发放说明：${d['issue_note'] ?? '无'}'),
             Text('归还说明：${d['return_note'] ?? '无'}'),

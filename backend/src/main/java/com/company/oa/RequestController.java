@@ -17,6 +17,10 @@ class RequestController {
     this.workflow = workflow;
   }
 
+  @PostMapping("/requests/{id}/reassign")
+  Object reassign(@PathVariable long id,@Valid @RequestBody ApprovalSupport.Reassign in,HttpServletRequest req) {
+    workflow.reassign(id,in,Auth.actor(req));return Map.of("message","审批人已改派");
+  }
   @GetMapping("/health")
   Object health() {
     db.queryForObject("SELECT 1", Integer.class);
@@ -79,7 +83,7 @@ class RequestController {
     if (!a.admin()) {
       sql.append(
           " AND ((r.kind='EXPENSE' AND r.status='APPROVED' AND ?) OR r.user_id=? OR EXISTS(SELECT 1 FROM approval_steps s WHERE s.request_id=r.id AND"
-              + " s.approver_id=?) OR EXISTS(SELECT 1 FROM request_cc c WHERE c.request_id=r.id AND c.user_id=?))");
+              + " (s.approver_id=? OR s.actor_id="+a.id()+")) OR EXISTS(SELECT 1 FROM approval_reassignments h WHERE h.business='REQUEST' AND h.target_id=r.id AND (h.previous_approver_id="+a.id()+" OR h.approver_id="+a.id()+")) OR EXISTS(SELECT 1 FROM request_cc c WHERE c.request_id=r.id AND c.user_id=?))");
       p.add(a.has("FINANCE"));
       p.add(a.id());
       p.add(a.id());
@@ -113,12 +117,13 @@ class RequestController {
     r.put(
         "steps",
         db.queryForList(
-            "SELECT s.*,u.name approver_name FROM approval_steps s JOIN users u ON"
+            "SELECT s.*,v.name actor_name,u.name approver_name FROM approval_steps s LEFT JOIN users v ON v.id=s.actor_id JOIN users u ON"
                 + " u.id=s.approver_id WHERE request_id=? ORDER BY step",
             id));
     r.put("user_name", db.queryForObject("SELECT name FROM users WHERE id=?", String.class, r.get("user_id")));
     r.put("items", db.queryForList("SELECT line_no,description,amount FROM expense_items WHERE request_id=? ORDER BY line_no", id));
     r.put("attachments", db.queryForList("SELECT a.id,a.original_name,a.media_type FROM expense_attachments e JOIN attachments a ON a.id=e.attachment_id WHERE e.request_id=? ORDER BY e.line_no", id));
+    r.put("reassignments",db.queryForList("SELECT h.*,u.name previous_approver_name,v.name approver_name,a.name actor_name FROM approval_reassignments h LEFT JOIN users u ON u.id=h.previous_approver_id JOIN users v ON v.id=h.approver_id JOIN users a ON a.id=h.actor_id WHERE business='REQUEST' AND target_id=? ORDER BY h.id",id));
     r.put("payment_history", db.queryForList("SELECT h.*,u.name actor_name FROM expense_payment_history h JOIN users u ON u.id=h.actor_id WHERE request_id=? ORDER BY h.id", id));
     return r;
   }

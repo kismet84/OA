@@ -214,7 +214,8 @@ class PunchPage extends StatefulWidget {
 class _PunchState extends State<PunchPage> with Guard<PunchPage> {
   String kind = 'NORMAL';
   Position? position;
-  bool usedLastKnown = false;
+  DateTime? locatedAt;
+  String? locationSource;
   String? ssid;
   List<Json> history = [];
   @override
@@ -235,13 +236,17 @@ class _PunchState extends State<PunchPage> with Guard<PunchPage> {
   });
   Future<void> locate() async {
     position = null;
-    usedLastKnown = false;
+    locatedAt = null;
+    locationSource = null;
     ssid = null;
-    final location = await getPunchLocation(allowStaleLastKnown: kind == 'NORMAL');
+    final location = await getPunchLocation(
+      allowStaleLastKnown: kind == 'NORMAL',
+    );
     final value = location.position;
     punchPayload(kind, value.latitude, value.longitude, value.accuracy);
     position = value;
-    usedLastKnown = location.usedLastKnown;
+    locatedAt = location.locatedAt;
+    locationSource = location.locationSource;
     try {
       ssid = await NetworkInfo().getWifiName();
       if (ssid == '<unknown ssid>') ssid = null;
@@ -275,7 +280,7 @@ class _PunchState extends State<PunchPage> with Guard<PunchPage> {
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Text(
-                '${usedLastKnown ? '使用最近一次定位\n' : ''}纬度 ${position!.latitude.toStringAsFixed(6)}，经度 ${position!.longitude.toStringAsFixed(6)}\n精度 ${position!.accuracy.toStringAsFixed(1)} 米\nWi-Fi：${ssid ?? '未能获取，由服务器校验出口 IP'}',
+                '${locationSourceLabel(locationSource)} · 采集时间 ${timeOf(locatedAt?.toIso8601String())}\n纬度 ${position!.latitude.toStringAsFixed(6)}，经度 ${position!.longitude.toStringAsFixed(6)}\n精度 ${position!.accuracy.toStringAsFixed(1)} 米\nWi-Fi：${ssid ?? '未能获取，由服务器校验出口 IP'}',
               ),
             ),
           ),
@@ -286,6 +291,28 @@ class _PunchState extends State<PunchPage> with Guard<PunchPage> {
               ? null
               : () => run(() async {
                   await locate();
+                  if (!context.mounted) return;
+                  setState(() {});
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      title: const Text('确认定位并打卡'),
+                      content: Text(
+                        '${locationSourceLabel(locationSource)}\n采集时间：${timeOf(locatedAt?.toIso8601String())}',
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context, false),
+                          child: const Text('取消'),
+                        ),
+                        FilledButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          child: const Text('确认打卡'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (confirmed != true) return;
                   final p = position!;
                   await widget.api.call(
                     '/punches',
@@ -296,6 +323,8 @@ class _PunchState extends State<PunchPage> with Guard<PunchPage> {
                       p.longitude,
                       p.accuracy,
                       ssid: ssid,
+                      locatedAt: locatedAt,
+                      locationSource: locationSource,
                     ),
                   );
                   history = records(await widget.api.call('/punches'));
@@ -312,7 +341,7 @@ class _PunchState extends State<PunchPage> with Guard<PunchPage> {
             child: ListTile(
               title: Text(textOf(p['kind'])),
               subtitle: Text(
-                '${timeOf(p['punched_at'])} · ${p['correction_request_id'] == null ? '现场打卡' : '补卡 #${p['correction_request_id']}'}',
+                '${timeOf(p['punched_at'])} · ${p['correction_request_id'] == null ? '现场打卡' : '补卡 #${p['correction_request_id']}'}\n定位：${locationSourceLabel(p['locationSource'] ?? p['location_source'])}${p['locatedAt'] != null || p['located_at'] != null ? ' · 采集时间 ${timeOf(p['locatedAt'] ?? p['located_at'])}' : ''}',
               ),
             ),
           ),

@@ -32,7 +32,7 @@ class AnnouncementController {
     a.requireAdmin();
     // Serialize with organization updates and application submission for a coherent recipient
     // snapshot.
-    db.execute("SELECT pg_advisory_xact_lock(20261111)");
+    ApprovalSupport.organizationSnapshot(db);
     if (in.departmentId() != null)
       ApiException.require(
           db.queryForObject(
