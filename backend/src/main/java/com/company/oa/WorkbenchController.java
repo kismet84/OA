@@ -186,10 +186,23 @@ class WorkbenchController {
             Long.class,
             start.atStartOfDay(),
             end.plusDays(1).atStartOfDay()));
-    var anomalies=new LinkedHashMap<String,Object>();
-    for(String k:List.of("lateCount","earlyCount","missingCount"))anomalies.put(k,0);
-    for(long uid:active){var stats=attendanceService.summary(uid,start,end);for(String k:anomalies.keySet())anomalies.put(k,((Number)anomalies.get(k)).intValue()+((Number)stats.get(k)).intValue());}
-    attendance.put("anomalies",anomalies);
+    // Keep pre-disable anomalies without changing active people, facts or pending approvals.
+    var anomalies = new LinkedHashMap<String, Object>();
+    for (String k : List.of("lateCount", "earlyCount", "missingCount")) anomalies.put(k, 0);
+    for (long uid :
+        db.queryForList(
+            "SELECT id FROM users WHERE id IN ("
+                + history
+                + ") AND (enabled OR (disabled_at IS NOT NULL AND (disabled_at AT TIME ZONE"
+                + " 'Asia/Shanghai')::date>?))",
+            Long.class,
+            start)) {
+      var stats = attendanceService.summary(uid, start, end);
+      for (String k : anomalies.keySet())
+        anomalies.put(
+            k, ((Number) anomalies.get(k)).intValue() + ((Number) stats.get(k)).intValue());
+    }
+    attendance.put("anomalies", anomalies);
     long target = userId == null ? a.id() : userId;
     String relevant =
         personal

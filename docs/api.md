@@ -648,7 +648,7 @@ Flutter `push_test.dart` 用假设备和 mock HTTP 验证权限拒绝、登记�
 
 打卡使用 `(20261112, hashint8(userId))` 事务锁，一般审批决定/撤回使用 `(20261113, hashint8(requestId))`；同员工余额仍通过用户行锁串行。组织维护使用独立排他键 `20261114`；读取审批链、改派、公告/文档接收范围快照使用该键的共享锁，防止停用与新指派交错。共享快照之间可以并行，不会阻塞打卡。文档文件解析在开启数据库写事务及获取锁前完成，事务内重新检查附件权限和绑定；重新上架核对附件未被替换。合同与资产写操作使用既有单据行锁，发放按资产 ID 排序加锁；文档附件按 UUID 排序加锁。日程 `630206` 和访客 `110011` 保留各自独立的业务锁，不与其他业务共用。每个路径最多一把排他业务 advisory lock，无交叉命名空间反序获取。
 
-## 第二阶段优化（V14 / V15）
+## 第二阶段优化（V14 / V15 / V16）
 
 所有业务日期、`timestamp` 打卡和半天边界按 Asia/Shanghai 解释；带时区的催办时间为 ISO 8601。原 `POST /api/punches`、消息 `pending`、既有导出和工作台字段保持兼容。
 
@@ -661,7 +661,7 @@ Flutter `push_test.dart` 用假设备和 mock HTTP 验证权限拒绝、登记�
 - `GET /api/attendance/daily?userId=&from=YYYY-MM-DD&to=YYYY-MM-DD`：默认本人，含首尾最多366天。每行 `day,status,firstPunch,lastPunch,punches,rulesEnabled,expected,lateMinutes,earlyMinutes,missingPunch,leaveDays,field,requestIds`。状态 NORMAL 正常、LATE 迟到、EARLY 早退、LATE_EARLY 同时异常、MISSING 缺卡、LEAVE 请假、FIELD 外勤出勤、REST 休息、EXCLUDED 未纳入统计、FUTURE 未来、IN_PROGRESS 当天进行中；关闭规则时 RECORDED/PUNCHED 只展示事实。
 - `GET /api/attendance/summary?month=YYYY-MM&departmentId=&userId=`：按人返回 `user_id,employee_no,user_name,department_name,expectedDays,normalDays,lateCount,lateMinutes,earlyCount,earlyMinutes,missingCount,leaveDays,fieldDays,restDays,rulesEnabled`。权限复用工作台：员工本人、主管直属下级、部门负责人所辖树、ADMIN/FINANCE 公司范围；仅公司范围角色可传部门筛选。越权403。工作台 `attendance` 新增 `anomalies:{lateCount,earlyCount,missingCount}`，使用其选定日期与人员范围。
 
-实时判定不回写 punches：节假日免卡、补班日优先于周几。迁移当天（北京时间）之前默认未纳入；管理员可调整 effective_from。入职前不统计；因无停用时间字段，当前停用账号整个查询范围均未纳入，重新启用后可再次计算。未来不判定，当天未到应下班时间不判缺卡或早退。全天请假免卡，两份半天请假可合并；上午请假上班基准13:00，下午请假下班基准13:00。出差/外出日有任意正常或外勤卡即外勤出勤，否则缺外勤卡。普通日不足两卡记一次缺卡，单卡按离上下班哪端近判断缺另一端；两卡及以上取首末次，补卡等同有效打卡。09:05在宽限内，09:06记迟到6分钟（分钟为距离标准时间的完整分钟数，非扣除宽限后的分钟）；早退同理。应出勤含请假日和进行中的今天，正常天数不含单独列出的请假/外勤/异常。异常计数按人日，一天两端都缺也只记一次缺卡。请假只在纳入规则的非休息日计入月度规则报表，与旧工作台自然日请假事实统计并存。
+实时判定不回写 punches：节假日免卡、补班日优先于周几。迁移当天（北京时间）之前默认未纳入；管理员可调整 effective_from。入职前不统计；V16 新增 users.disabled_at（timestamptz），不回填旧停用时间。新建停用账号及启用转停用时写数据库当前时间，停用转启用时清空，状态未变时保留原值。按 disabled_at 的北京时间日期分段，停用前正常统计，停用当天及之后整日不纳入；既有 disabled_at IS NULL 的停用账号仍整段不纳入；重新启用清空后按现有事实重算。团队工作台 anomalies 保留停用前历史，在职人数、打卡/请假事实和进行中待办仍只统计在职。未来不判定，当天未到应下班时间不判缺卡或早退。全天请假免卡，两份半天请假可合并；上午请假上班基准13:00，下午请假下班基准13:00。上午请假须覆盖到13:00，标准09:00–13:00不因自定义上班时间漏判；下午请假须从不晚于13:00覆盖到 min(work_end,18:00)，兼容17:30和18:30下班规则。半天请假与另半天出差/外出共存仍计0.5天请假并保留field，有任意有效卡判FIELD，无卡判MISSING。出差/外出日有任意正常或外勤卡即外勤出勤，否则缺外勤卡。普通日不足两卡记一次缺卡，单卡按离上下班哪端近判断缺另一端；两卡及以上取首末次，补卡等同有效打卡。09:05在宽限内，09:06记迟到6分钟（分钟为距离标准时间的完整分钟数，非扣除宽限后的分钟）；早退同理。应出勤含请假日和进行中的今天，正常天数不含单独列出的请假/外勤/异常。异常计数按人日，一天两端都缺也只记一次缺卡。请假只在纳入规则的非休息日计入月度规则报表，与旧工作台自然日请假事实统计并存。
 
 ### 月度 CSV
 
@@ -675,7 +675,7 @@ Flutter `push_test.dart` 用假设备和 mock HTTP 验证权限拒绝、登记�
 - `POST /api/requests/{id}/urge`、`POST /api/contracts/{id}/urge`、`POST /api/assets/requests/{id}/urge`。仅发起人本人且单据 PENDING；越权403「仅发起人本人可催办」，已办结400。返回 `{message:"已催办 张三",urgedUserIds:[1],nextAvailableAt:"..."}`。各详情增加 `canUrge,lastUrgedAt,urgeAvailableAt`（冷却中 canUrge 仍表示发起人资格，客户端按可用时间禁用按钮）。
 - 对当前步骤与当前改派审批人发通知，跳过停用者；合同/资产角色终审的空 approver_id 展开为在职 FINANCE/ADMIN，并排除发起人。无人可通知400「当前没有在职审批人，请联系管理员改派」。同一业务单据、版本、步骤、审批人默认120分钟内再次催办429「已于 HH:mm 催办过，请 X 分钟后再试」。同单据行锁串行处理并与审批/改派互斥，通知与催办记录同事务。
 - ADMIN `GET/PUT /api/admin/urge-config`，字段 `urge_cooldown_minutes`（1–10080）、`auto_urge_enabled`、`auto_urge_hours`（1–8760，默认24）、`auto_urge_repeat_hours`（0–8760，默认0不重复）。写 `SAVE_URGE_CONFIG` 审计，既有审批阈值不变。
-- 每10分钟北京时间巡检；提交/步骤推进/改派在数据库同事务更新 activated_at。迁移按单据创建、上一步处理和最近改派时间安全回填。全局事务 advisory lock 防多实例重复；按业务、版本、步骤、审批人、activated_at 激活周期查询 AUTO 记录去重。配置重复间隔大于0时距离上次自动催办达到间隔再发送。手动和自动记录均参与手动冷却。已办结/撤回不发，停用审批人不发，不额外通知发起人。
+- 每10分钟北京时间巡检；提交/步骤推进/改派在数据库同事务更新 activated_at。迁移按单据创建、上一步处理和最近改派时间安全回填。全局事务 advisory lock 防多实例重复；按业务、版本、步骤、审批人、activated_at 激活周期查询 AUTO 记录去重。配置重复间隔大于0时距离上次自动催办达到间隔再发送。手动和自动记录均参与手动冷却。自动发送前也检查本激活周期最近一次任意模式催办，仍在 urge_cooldown_minutes 内则本轮跳过，冷却结束且满足 AUTO 去重/重复间隔后可发送；改派后的新周期不受旧周期冷却影响。已办结/撤回不发，停用审批人不发，不额外通知发起人。
 - 所有催办仅调用现有 NotificationService.write，写消息中心并发布 Created → PushDelivery → Android FCM。真实设备到达仍需部署和有效FCM凭据。
 
 ### 常用模板与复制

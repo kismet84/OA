@@ -231,8 +231,8 @@ class AdminController {
       id =
           db.queryForObject(
               "INSERT INTO"
-                  + " users(employee_no,phone,name,roles,department_id,manager_id,enabled,password_hash)"
-                  + " VALUES(?,?,?,?,?,?,?,?) RETURNING id",
+                  + " users(employee_no,phone,name,roles,department_id,manager_id,enabled,password_hash,disabled_at)"
+                  + " VALUES(?,?,?,?,?,?,?,?,CASE WHEN ? THEN NULL ELSE now() END) RETURNING id",
               Long.class,
               in.employeeNo(),
               in.phone(),
@@ -241,18 +241,24 @@ class AdminController {
               in.departmentId(),
               in.managerId(),
               in.enabled(),
-              auth.encoder.encode(Auth.validPassword(in.password())));
+              auth.encoder.encode(Auth.validPassword(in.password())),
+              in.enabled());
     } else {
+      boolean wasEnabled =
+          db.queryForObject("SELECT enabled FROM users WHERE id=? FOR UPDATE", Boolean.class, id);
       db.update(
           "UPDATE users SET"
-              + " employee_no=?,phone=?,name=?,roles=?,department_id=?,manager_id=?,enabled=?,session_version=session_version+1"
-              + " WHERE id=?",
+              + " employee_no=?,phone=?,name=?,roles=?,department_id=?,manager_id=?,disabled_at=CASE"
+              + " WHEN ? THEN CASE WHEN ? THEN NULL ELSE now() END ELSE disabled_at END,"
+              + " enabled=?,session_version=session_version+1 WHERE id=?",
           in.employeeNo(),
           in.phone(),
           in.name(),
           roles,
           in.departmentId(),
           in.managerId(),
+          wasEnabled != in.enabled(),
+          in.enabled(),
           in.enabled(),
           id);
       if (in.password() != null)

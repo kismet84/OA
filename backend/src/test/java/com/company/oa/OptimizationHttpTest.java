@@ -39,7 +39,7 @@ class OptimizationHttpTest {
     var fixed = Clock.fixed(Instant.parse("2026-11-13T12:00:00Z"), AttendanceService.ZONE);
     when(clock.instant()).thenReturn(fixed.instant());
     when(clock.getZone()).thenReturn(AttendanceService.ZONE);
-    when(clock.withZone(any())).thenAnswer(i -> fixed.withZone(i.getArgument(0)));
+    doAnswer(i -> fixed.withZone(i.getArgument(0))).when(clock).withZone(any());
     prefix = "opt" + UUID.randomUUID().toString().substring(0, 8);
     dept =
         db.queryForObject(
@@ -453,5 +453,217 @@ class OptimizationHttpTest {
     ok("POST", "/assets/requests/" + asset + "/proxy-approve", at, Map.of("approved", true));
     db.update("UPDATE users SET enabled=true WHERE id=?", next);
     assertEquals(0, count(nt, "approvalsAssets"));
+  }
+
+  Map<String, Object> userInput(String suffix, boolean enabled) {
+    return new HashMap<>(
+        Map.of(
+            "employeeNo",
+            prefix + suffix,
+            "name",
+            prefix + suffix,
+            "departmentId",
+            dept,
+            "enabled",
+            enabled,
+            "roles",
+            List.of("EMPLOYEE")));
+  }
+
+  String attendanceCsv(String month, boolean detail) {
+    var h = new HttpHeaders();
+    h.setBearerAuth(at);
+    var result =
+        http.exchange(
+            "/api/admin/exports/attendance-monthly.csv?month="
+                + month
+                + "&departmentId="
+                + dept
+                + "&detail="
+                + detail,
+            HttpMethod.GET,
+            new HttpEntity<>(h),
+            String.class);
+    assertEquals(200, result.getStatusCode().value());
+    return result.getBody();
+  }
+
+  @Test
+  void disabledHistoryDailySummaryCsvWorkbenchAndReactivation() {
+    var input = userInput("owner", false);
+    ok("PUT", "/admin/users/" + owner, at, input);
+    var disabled =
+        db.queryForObject("SELECT disabled_at FROM users WHERE id=?", OffsetDateTime.class, owner);
+    assertNotNull(disabled);
+    ok("PUT", "/admin/users/" + owner, at, input);
+    assertEquals(
+        disabled,
+        db.queryForObject("SELECT disabled_at FROM users WHERE id=?", OffsetDateTime.class, owner));
+    var date = disabled.atZoneSameInstant(AttendanceService.ZONE).toLocalDate();
+    var before = date.minusDays(1);
+    var fixed =
+        Clock.fixed(
+            date.plusDays(2).atStartOfDay(AttendanceService.ZONE).toInstant(),
+            AttendanceService.ZONE);
+    when(clock.instant()).thenReturn(fixed.instant());
+    doAnswer(i -> fixed.withZone(i.getArgument(0))).when(clock).withZone(any());
+    db.update(
+        "UPDATE users SET created_at=? WHERE id=?", before.minusDays(10).atStartOfDay(), owner);
+    db.update(
+        "UPDATE attendance_rules SET"
+            + " effective_from=?,work_start='09:00',work_end='18:00',late_grace_minutes=5,early_grace_minutes=5"
+            + " WHERE id=1",
+        before.minusDays(10));
+    for (var day : List.of(before, date, date.plusDays(1)))
+      db.update(
+          "INSERT INTO work_calendar(day,kind) VALUES(?,'WORKDAY') ON CONFLICT(day)"
+              + " DO UPDATE SET kind='WORKDAY'",
+          day);
+    db.update(
+        "INSERT INTO punches(user_id,punched_at,kind,simulated)"
+            + " VALUES(?,?,'NORMAL',true),(?,?,'NORMAL',true)",
+        owner,
+        before.atTime(9, 6),
+        owner,
+        before.atTime(18, 0));
+    String range = "&from=" + before + "&to=" + date.plusDays(1);
+    var daily = list("/attendance/daily?userId=" + owner + range, at);
+    assertEquals(
+        List.of("LATE", "EXCLUDED", "EXCLUDED"), daily.stream().map(r -> r.get("status")).toList());
+    var summary =
+        list("/attendance/summary?month=" + YearMonth.from(before), at).stream()
+            .filter(r -> ((Number) r.get("user_id")).longValue() == owner)
+            .findFirst()
+            .orElseThrow();
+    assertEquals(1, summary.get("lateCount"));
+    String detail = attendanceCsv(YearMonth.from(before).toString(), true);
+    assertTrue(
+        detail
+            .lines()
+            .anyMatch(
+                l ->
+                    l.contains(prefix + "owner")
+                        && l.contains(before.toString())
+                        && l.contains("迟到")));
+    String excluded = attendanceCsv(YearMonth.from(date).toString(), true);
+    assertTrue(
+        excluded
+            .lines()
+            .anyMatch(
+                l ->
+                    l.contains(prefix + "owner")
+                        && l.contains(date.toString())
+                        && l.contains("未纳入")));
+    var csvRow =
+        attendanceCsv(YearMonth.from(before).toString(), false)
+            .lines()
+            .filter(l -> l.contains(prefix + "owner"))
+            .findFirst()
+            .orElseThrow()
+            .split(",");
+    assertEquals("\"1\"", csvRow[5]); // 迟到次数
+    assertTrue(((Number) summary.get("expectedDays")).intValue() > 0);
+    var workbench =
+        ok("GET", "/workbench/summary?scope=team&departmentId=" + dept + range, at, null);
+    var anomalies = (Map) ((Map) workbench.get("attendance")).get("anomalies");
+    assertEquals(1, anomalies.get("lateCount"));
+    assertEquals(3, workbench.get("people"));
+    db.update("UPDATE users SET enabled=false,disabled_at=NULL WHERE id=?", next);
+    assertEquals(
+        "EXCLUDED", list("/attendance/daily?userId=" + next + range, at).getFirst().get("status"));
+    var legacySummary =
+        list("/attendance/summary?month=" + YearMonth.from(before), at).stream()
+            .filter(r -> ((Number) r.get("user_id")).longValue() == next)
+            .findFirst()
+            .orElseThrow();
+    assertEquals(0, legacySummary.get("expectedDays"));
+    assertEquals(0, legacySummary.get("missingCount"));
+    assertTrue(
+        attendanceCsv(YearMonth.from(before).toString(), true)
+            .lines()
+            .anyMatch(l -> l.contains(prefix + "next") && l.contains(before.toString()) && l.contains("未纳入")));
+    input.put("enabled", true);
+    ok("PUT", "/admin/users/" + owner, at, input);
+    assertNull(
+        db.queryForObject("SELECT disabled_at FROM users WHERE id=?", OffsetDateTime.class, owner));
+    assertEquals(
+        "MISSING", list("/attendance/daily?userId=" + owner + range, at).get(1).get("status"));
+    var create = userInput("inactive", false);
+    create.put("password", "Optimize@Test2026");
+    long id = ((Number) ok("POST", "/admin/users", at, create).get("id")).longValue();
+    assertNotNull(
+        db.queryForObject("SELECT disabled_at FROM users WHERE id=?", OffsetDateTime.class, id));
+    ok("PUT", "/admin/users/" + next, at, userInput("next", false));
+    assertNull(
+        db.queryForObject("SELECT disabled_at FROM users WHERE id=?", OffsetDateTime.class, next));
+  }
+
+  @Test
+  void automaticRespectsManualCooldownAndNewActivationCycle() {
+    long id = request();
+    var now = Instant.parse("2026-11-13T12:00:00Z");
+    db.update(
+        "UPDATE approval_steps SET activated_at=? WHERE request_id=? AND step=1",
+        OffsetDateTime.ofInstant(now.minusSeconds(86400), ZoneOffset.UTC),
+        id);
+    ok("POST", "/requests/" + id + "/urge", ot, null);
+    assertEquals(0, urges.autoForDev(now, id));
+    assertEquals(
+        0,
+        db.queryForObject(
+            "SELECT count(*) FROM approval_urges WHERE target_id=? AND business='REQUEST' AND"
+                + " mode='AUTO'",
+            Integer.class,
+            id));
+    assertEquals(
+        1,
+        db.queryForObject(
+            "SELECT count(*) FROM notifications WHERE request_id=? AND message LIKE '【催办】%'",
+            Integer.class, id));
+    assertEquals(
+        0,
+        db.queryForObject(
+            "SELECT count(*) FROM notifications WHERE request_id=? AND message LIKE '【超时提醒】%'",
+            Integer.class, id));
+    assertEquals(0, urges.autoForDev(now.plusSeconds(7199), id));
+    assertEquals(1, urges.autoForDev(now.plusSeconds(7200), id));
+    assertEquals(
+        1,
+        db.queryForObject(
+            "SELECT count(*) FROM approval_urges WHERE target_id=? AND business='REQUEST' AND"
+                + " mode='AUTO'",
+            Integer.class,
+            id));
+    assertEquals(
+        1,
+        db.queryForObject(
+            "SELECT count(*) FROM notifications WHERE request_id=? AND message LIKE '【超时提醒】%'",
+            Integer.class, id));
+    assertEquals(0, urges.autoForDev(now.plusSeconds(7201), id));
+    ok("POST", "/requests/" + id + "/cancel", ot, null);
+
+    long reassigned = request();
+    db.update(
+        "UPDATE approval_steps SET activated_at=? WHERE request_id=? AND step=1",
+        OffsetDateTime.ofInstant(now.minusSeconds(86400), ZoneOffset.UTC),
+        reassigned);
+    ok("POST", "/requests/" + reassigned + "/urge", ot, null);
+    ok(
+        "POST",
+        "/requests/" + reassigned + "/reassign",
+        at,
+        Map.of("approverId", next, "note", "交接"));
+    ok(
+        "POST",
+        "/requests/" + reassigned + "/reassign",
+        at,
+        Map.of("approverId", manager, "note", "重新激活"));
+    db.update(
+        "UPDATE approval_steps SET activated_at=? WHERE request_id=? AND step=1",
+        OffsetDateTime.ofInstant(now, ZoneOffset.UTC),
+        reassigned);
+    db.update("UPDATE workflow_config SET auto_urge_hours=1 WHERE id=1");
+    assertEquals(1, urges.autoForDev(now.plusSeconds(3600), reassigned));
+    ok("POST", "/requests/" + reassigned + "/cancel", ot, null);
   }
 }

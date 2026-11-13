@@ -55,11 +55,25 @@ class AttendanceService {
         : LocalDateTime.parse(v.toString().replace(' ', 'T'));
   }
 
+  static LocalDate beijingDate(Object value) {
+    if (value == null) return null;
+    Instant instant =
+        value instanceof java.sql.Timestamp t
+            ? t.toInstant()
+            : value instanceof OffsetDateTime o
+                ? o.toInstant()
+                : value instanceof Instant i
+                    ? i
+                    : OffsetDateTime.parse(value.toString()).toInstant();
+    return instant.atZone(ZONE).toLocalDate();
+  }
+
   static Map<String, Object> evaluate(
       Rule rule,
       LocalDate day,
       LocalDate created,
       boolean enabled,
+      LocalDate disabledDate,
       String calendar,
       List<LocalDateTime> punches,
       List<Absence> absences,
@@ -86,18 +100,22 @@ class AttendanceService {
             .toList();
     out.put("requestIds", linked.stream().map(Absence::id).toList());
     boolean am = false, pm = false, field = false;
+    // Workflow half-days end at 18:00 even when the attendance rule ends later.
+    LocalTime pmEnd = rule.end().isBefore(LocalTime.of(18, 0)) ? rule.end() : LocalTime.of(18, 0);
     for (var a : linked) {
       if (a.kind().equals("LEAVE")) {
         am |= a.start().isBefore(day.atTime(13, 0)) && !a.end().isBefore(day.atTime(13, 0));
-        pm |= !a.start().isAfter(day.atTime(13, 0)) && !a.end().isBefore(day.atTime(18, 0));
+        pm |= !a.start().isAfter(day.atTime(13, 0)) && !a.end().isBefore(day.atTime(pmEnd));
       } else field = true;
     }
     out.put("leaveDays", (am ? .5 : 0) + (pm ? .5 : 0));
     out.put("field", field);
     String status;
     if (day.isAfter(now.toLocalDate())) status = "FUTURE";
-    else if (day.isBefore(rule.effective()) || day.isBefore(created) || !enabled)
-      status = "EXCLUDED";
+    else if (day.isBefore(rule.effective())
+        || day.isBefore(created)
+        || (!enabled && disabledDate == null)
+        || (disabledDate != null && !day.isBefore(disabledDate))) status = "EXCLUDED";
     else if (!rule.enabled())
       status = am && pm ? "LEAVE" : sorted.isEmpty() ? "RECORDED" : "PUNCHED";
     else if ("HOLIDAY".equals(calendar)
@@ -147,7 +165,7 @@ class AttendanceService {
   List<Map<String, Object>> daily(long user, LocalDate from, LocalDate to) {
     ApiException.require(
         !from.isAfter(to) && ChronoUnit.DAYS.between(from, to) < 366, "日期范围最多366天，开始不得晚于结束");
-    var u = db.queryForMap("SELECT enabled,created_at FROM users WHERE id=?", user);
+    var u = db.queryForMap("SELECT enabled,created_at,disabled_at FROM users WHERE id=?", user);
     var rule = Rule.of(rules());
     var punches =
         db
@@ -190,6 +208,7 @@ class AttendanceService {
                     d,
                     time(u.get("created_at")).toLocalDate(),
                     (boolean) u.get("enabled"),
+                    beijingDate(u.get("disabled_at")),
                     calendar.get(d.toString()),
                     punches.stream().filter(p -> p.toLocalDate().equals(d)).toList(),
                     absences,

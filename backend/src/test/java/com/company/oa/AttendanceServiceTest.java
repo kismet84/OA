@@ -29,6 +29,7 @@ class AttendanceServiceTest {
         d,
         day.minusYears(1),
         true,
+        null,
         calendar,
         Arrays.stream(punches).map(t -> d.atTime(LocalTime.parse(t))).toList(),
         absence,
@@ -176,6 +177,7 @@ class AttendanceServiceTest {
                 day.minusDays(1),
                 true,
                 null,
+                null,
                 List.of(day.atTime(17, 0)),
                 List.of(),
                 day.atTime(17, 30))
@@ -191,6 +193,7 @@ class AttendanceServiceTest {
                 day,
                 day.minusDays(1),
                 true,
+                null,
                 null,
                 List.of(),
                 List.of(),
@@ -208,6 +211,7 @@ class AttendanceServiceTest {
                 day.plusDays(1),
                 true,
                 null,
+                null,
                 List.of(),
                 List.of(),
                 day.plusDays(1).atTime(18, 0))
@@ -224,6 +228,7 @@ class AttendanceServiceTest {
                 day.minusDays(1),
                 false,
                 null,
+                null,
                 List.of(),
                 List.of(),
                 day.plusDays(1).atTime(18, 0))
@@ -235,5 +240,66 @@ class AttendanceServiceTest {
     var d = LocalDate.of(2026, 11, 30);
     assertEquals("NORMAL", run(rule, d, null, List.of(), "09:00", "18:00").get("status"));
     assertEquals("MISSING", run(rule, d.plusDays(1), null, List.of()).get("status"));
+  }
+
+  @Test
+  void disabledDateSegmentsAndReactivation() {
+    for (int offset : List.of(-1, 0, 1)) {
+      var date = day.plusDays(offset);
+      var result =
+          AttendanceService.evaluate(
+              rule,
+              date,
+              day.minusYears(1),
+              false,
+              day,
+              "WORKDAY",
+              List.of(),
+              List.of(),
+              day.plusDays(2).atStartOfDay());
+      assertEquals(offset < 0 ? "MISSING" : "EXCLUDED", result.get("status"));
+    }
+    assertEquals("MISSING", run(rule, day, null, List.of()).get("status"));
+    assertEquals(day, AttendanceService.beijingDate(OffsetDateTime.parse("2026-11-01T16:01:00Z")));
+    assertEquals(
+        day,
+        AttendanceService.beijingDate(
+            java.sql.Timestamp.from(Instant.parse("2026-11-01T16:01:00Z"))));
+  }
+
+  @Test
+  void customHoursLeaveBoundariesAndMixedField() {
+    for (String end : List.of("17:30", "18:30")) {
+      var custom =
+          new AttendanceService.Rule(
+              true, LocalTime.of(8, 30), LocalTime.parse(end), 5, 5, rule.days(), rule.effective());
+      for (String leaveEnd : end.equals("17:30") ? List.of("17:30", "18:00") : List.of("18:00")) {
+        var full = run(custom, day, null, List.of(absent("LEAVE", "09:00", leaveEnd)));
+        assertEquals("LEAVE", full.get("status"));
+        assertEquals(1.0, full.get("leaveDays"));
+        var pm =
+            run(custom, day, null, List.of(absent("LEAVE", "13:00", leaveEnd)), "08:30", "13:00");
+        assertEquals("NORMAL", pm.get("status"));
+        assertEquals(0.5, pm.get("leaveDays"));
+      }
+      var am = run(custom, day, null, List.of(absent("LEAVE", "09:00", "13:00")), "13:00", end);
+      assertEquals("NORMAL", am.get("status"));
+      assertEquals(0.5, am.get("leaveDays"));
+      for (String kind : List.of("OUTING", "TRAVEL")) {
+        for (boolean morningLeave : List.of(true, false)) {
+          var absences =
+              List.of(
+                  absent(morningLeave ? "LEAVE" : kind, "09:00", "13:00"),
+                  absent(morningLeave ? kind : "LEAVE", "13:00", "18:00"));
+          for (boolean punch : List.of(true, false)) {
+            var mixed =
+                run(custom, day, null, absences, punch ? new String[] {"14:00"} : new String[] {});
+            assertEquals(0.5, mixed.get("leaveDays"));
+            assertEquals(true, mixed.get("field"));
+            assertEquals(punch ? "FIELD" : "MISSING", mixed.get("status"));
+          }
+        }
+      }
+    }
   }
 }

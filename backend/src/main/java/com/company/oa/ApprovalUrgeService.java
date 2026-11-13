@@ -249,6 +249,10 @@ class ApprovalUrgeService {
           var prev = last(t, uid, "AUTO", true);
           if (prev != null && (repeat == 0 || now.isBefore(prev.plusSeconds(repeat * 3600))))
             continue;
+          var latestAny = last(t, uid, null, true);
+          long cooldownMinutes = ((Number) c.get("urge_cooldown_minutes")).longValue();
+          if (latestAny != null && now.isBefore(latestAny.plusSeconds(cooldownMinutes * 60)))
+            continue;
           send(t, uid, null, "AUTO", now, "【超时提醒】以下审批已等待超过 " + hours + " 小时：");
           count++;
         }
