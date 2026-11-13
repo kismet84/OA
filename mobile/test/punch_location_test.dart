@@ -38,6 +38,9 @@ class FakeLocation extends GeolocatorPlatform {
   Position? locationManagerCurrent;
   Position? cached;
   int cacheCalls = 0;
+  final warmupStarted = Completer<void>();
+  Future<void> Function(bool forced)? beforeCurrentResult;
+  Future<void> Function()? beforeCacheResult;
   final currentSettings = <LocationSettings?>[];
   final warmup = StreamController<Position>.broadcast();
   @override
@@ -47,8 +50,11 @@ class FakeLocation extends GeolocatorPlatform {
   @override
   Future<LocationPermission> requestPermission() async => permission;
   @override
-  Stream<Position> getPositionStream({LocationSettings? locationSettings}) =>
-      warmup.stream;
+  Stream<Position> getPositionStream({LocationSettings? locationSettings}) {
+    warmupStarted.complete();
+    return warmup.stream;
+  }
+
   @override
   Future<Position> getCurrentPosition({
     LocationSettings? locationSettings,
@@ -58,6 +64,7 @@ class FakeLocation extends GeolocatorPlatform {
     final forced =
         locationSettings is AndroidSettings &&
         locationSettings.forceLocationManager;
+    await beforeCurrentResult?.call(forced);
     if (forced) {
       expect(locationSettings.timeLimit, const Duration(seconds: 20));
       if (locationManagerError != null) throw locationManagerError!;
@@ -73,6 +80,7 @@ class FakeLocation extends GeolocatorPlatform {
     bool forceLocationManager = false,
   }) async {
     cacheCalls++;
+    await beforeCacheResult?.call();
     return cached;
   }
 }
@@ -244,6 +252,52 @@ void main() {
     expect(result.locationSource, 'WARMUP_CACHE');
     expect(result.locatedAt, cached.timestamp.toUtc());
     expect(location.currentSettings, isEmpty);
+  });
+
+  for (final stage in ['首轮超时', '两轮超时', '系统缓存为空', '系统缓存读取失败']) {
+    test('点击后预热成功且实时定位超时则使用预热缓存：$stage', () async {
+      startPunchLocationWarmup();
+      await location.warmupStarted.future;
+      final warmed = position(age: const Duration(minutes: 20));
+      Future<void> publishWarmup() async {
+        location.warmup.add(warmed);
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      location.error = TimeoutException('test');
+      location.locationManagerError = TimeoutException('test');
+      location.beforeCurrentResult = (forced) async {
+        if ((stage == '首轮超时' && !forced) || (stage == '两轮超时' && forced)) {
+          await publishWarmup();
+        }
+      };
+      location.beforeCacheResult = () async {
+        await publishWarmup();
+        if (stage == '系统缓存读取失败') throw TimeoutException('cache');
+      };
+      final result = await getPunchLocation();
+      expect(result.position, warmed);
+      expect(result.locationSource, 'WARMUP_CACHE');
+      expect(result.usedLastKnown, false);
+      expect(result.locatedAt, warmed.timestamp.toUtc());
+      expect(location.cached, isNull);
+      expect(location.currentSettings, hasLength(stage == '首轮超时' ? 1 : 2));
+      expect(location.cacheCalls, stage.startsWith('系统缓存') ? 1 : 0);
+    });
+  }
+
+  test('等待实时定位期间预热成功仍优先返回实时结果', () async {
+    startPunchLocationWarmup();
+    await location.warmupStarted.future;
+    location.current = position(latitude: 30.5);
+    location.beforeCurrentResult = (_) async {
+      location.warmup.add(position());
+      await Future<void>.delayed(Duration.zero);
+    };
+    final result = await getPunchLocation();
+    expect(result.position, location.current);
+    expect(result.locationSource, 'LIVE');
+    expect(location.cacheCalls, 0);
   });
 
   testWidgets('超时不提交；再次定位使用缓存时显示来源和坐标，SSID失败仍可提交', (tester) async {

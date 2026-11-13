@@ -85,6 +85,25 @@ void resetPunchLocationWarmupForTest() {
   _warmedPosition = null;
 }
 
+({
+  Position position,
+  bool usedLastKnown,
+  DateTime locatedAt,
+  String locationSource,
+})?
+_readWarmupLocation() {
+  final warmed = _warmedPosition;
+  if (warmed != null && _isUsable(warmed, maxAge: _freshLastKnownAge)) {
+    return (
+      position: warmed,
+      usedLastKnown: false,
+      locatedAt: warmed.timestamp.toUtc(),
+      locationSource: 'WARMUP_CACHE',
+    );
+  }
+  return null;
+}
+
 Future<Position> _livePosition(LocationSettings settings) async {
   final limit = settings.timeLimit ?? _liveTimeout;
   return Geolocator.getCurrentPosition(locationSettings: settings)
@@ -115,15 +134,8 @@ getPunchLocation({bool allowStaleLastKnown = true}) async {
       throw ApiError('定位权限已被系统禁止，请打开应用设置允许定位');
     }
 
-    final warmed = _warmedPosition;
-    if (warmed != null && _isUsable(warmed, maxAge: _freshLastKnownAge)) {
-      return (
-        position: warmed,
-        usedLastKnown: false,
-        locatedAt: warmed.timestamp.toUtc(),
-        locationSource: 'WARMUP_CACHE',
-      );
-    }
+    var warmed = _readWarmupLocation();
+    if (warmed != null) return warmed;
 
     try {
       final position = await _livePosition(
@@ -141,6 +153,8 @@ getPunchLocation({bool allowStaleLastKnown = true}) async {
     } catch (error) {
       if (!_isTimeout(error)) rethrow;
     }
+    warmed = _readWarmupLocation();
+    if (warmed != null) return warmed;
 
     try {
       final position = await _livePosition(
@@ -159,6 +173,8 @@ getPunchLocation({bool allowStaleLastKnown = true}) async {
     } catch (error) {
       if (!_isTimeout(error)) rethrow;
     }
+    warmed = _readWarmupLocation();
+    if (warmed != null) return warmed;
 
     Position? cached;
     try {
@@ -171,7 +187,6 @@ getPunchLocation({bool allowStaleLastKnown = true}) async {
       rethrow;
     } catch (error) {
       debugPrint('读取最近定位失败：$error');
-      throw ApiError(_timeoutMessage);
     }
     if (cached != null &&
         (_isUsable(cached, maxAge: _freshLastKnownAge) ||
@@ -186,6 +201,8 @@ getPunchLocation({bool allowStaleLastKnown = true}) async {
             : 'STALE_FALLBACK',
       );
     }
+    warmed = _readWarmupLocation();
+    if (warmed != null) return warmed;
     throw ApiError(_timeoutMessage);
   } on ApiError {
     rethrow;

@@ -99,7 +99,10 @@ async function browserPunch(kind:string){
  if(!window.confirm(punchMessage.value+'，确认打卡？'))return;
  await api('/punches','POST',{kind,latitude:pos.coords.latitude,longitude:pos.coords.longitude,accuracy:pos.coords.accuracy,locatedAt,locationSource:'LIVE'});
  await load();punchMessage.value='打卡成功 · '+punchMessage.value;
- }catch(e){punchMessage.value=e&&typeof e==='object'&&'message' in e?String(e.message):'定位或打卡失败，请检查浏览器定位权限'}finally{punchBusy.value=false}
+ }catch(e){
+ const code=e&&typeof e==='object'&&'code' in e?e.code:undefined;
+ punchMessage.value=code===3?'定位超时，请到信号较好的地方重试':code===1?'定位权限被拒绝，请在浏览器设置中允许定位后重试':code===2?'当前位置不可用，请检查定位设置后重试':e&&typeof e==='object'&&'message' in e?String(e.message):'定位或打卡失败，请检查浏览器定位权限';
+ }finally{punchBusy.value=false}
 }
 </script>
 <template>
