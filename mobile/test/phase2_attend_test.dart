@@ -210,7 +210,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.textContaining('类型：出勤'), findsOneWidget);
+    expect(find.textContaining('类型：外勤'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('提交审批'),
       250,

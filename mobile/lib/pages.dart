@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+
+import 'theme.dart';
+
 import 'package:geolocator/geolocator.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 
@@ -61,14 +64,14 @@ class _HomeState extends State<HomePage> with Guard<HomePage> {
         IconButton(
           tooltip: '刷新',
           onPressed: busy ? null : refresh,
-          icon: const Icon(Icons.refresh),
+          icon: const Icon(Icons.refresh_outlined),
         ),
       ],
     ),
     body: RefreshIndicator(
       onRefresh: refresh,
       child: ListView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(OaTokens.space20),
         children: [
           Text(
             '${widget.user['name']}，你好',
@@ -84,7 +87,7 @@ class _HomeState extends State<HomePage> with Guard<HomePage> {
           feedback,
           Card(
             child: Padding(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(OaTokens.space20),
               child: Wrap(
                 spacing: 24,
                 runSpacing: 16,
@@ -146,9 +149,9 @@ class _HomeState extends State<HomePage> with Guard<HomePage> {
               subtitle: Text(
                 workbench == null
                     ? '查看本人考勤与审批时效'
-                    : '本月正常打卡 ${workbench!['attendance']['normalPunches']} 次 · 出勤 ${workbench!['attendance']['fieldPunches']} 次\n有记录 ${workbench!['attendance']['recordedDays']} 天 · 办结 ${workbench!['approvals']['completed']} 单',
+                    : '本月正常打卡 ${workbench!['attendance']['normalPunches']} 次 · 外勤 ${workbench!['attendance']['fieldPunches']} 次\n有记录 ${workbench!['attendance']['recordedDays']} 天 · 办结 ${workbench!['approvals']['completed']} 单',
               ),
-              trailing: const Icon(Icons.chevron_right),
+              trailing: const Icon(Icons.chevron_right_outlined),
               onTap: () => open(WorkbenchPage(api: widget.api)),
             ),
           ),
@@ -168,12 +171,12 @@ class _HomeState extends State<HomePage> with Guard<HomePage> {
             ),
             (
               '待办任务',
-              Icons.task_alt,
+              Icons.task_alt_outlined,
               TasksPage(api: widget.api, user: widget.user),
             ),
             (
               '日程与会议',
-              Icons.calendar_month,
+              Icons.calendar_month_outlined,
               CalendarPage(api: widget.api, user: widget.user),
             ),
             ('打卡', Icons.location_on_outlined, PunchPage(api: widget.api)),
@@ -184,7 +187,7 @@ class _HomeState extends State<HomePage> with Guard<HomePage> {
             ),
             (
               '加班',
-              Icons.more_time,
+              Icons.more_time_outlined,
               RequestFormPage(api: widget.api, initialKind: 'OVERTIME'),
             ),
             (
@@ -215,9 +218,9 @@ class _HomeState extends State<HomePage> with Guard<HomePage> {
           ])
             Card(
               child: ListTile(
-                leading: Icon(entry.$2, color: const Color(0xff176b64)),
+                leading: Icon(entry.$2, color: OaTokens.primary),
                 title: Text(entry.$1),
-                trailing: const Icon(Icons.chevron_right),
+                trailing: const Icon(Icons.chevron_right_outlined),
                 onTap: () => open(entry.$3),
               ),
             ),
@@ -290,14 +293,14 @@ class _PunchState extends State<PunchPage> with Guard<PunchPage> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('打卡')),
     body: ListView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(OaTokens.space20),
       children: [
-        const Text('正常打卡须在公司网络；出勤须有当前有效的已批准出差/外出申请。只记录打卡，不计算迟到早退。'),
+        const Text('正常打卡须在公司网络；外勤须有当前有效的已批准出差/外出申请。只记录打卡，不计算迟到早退。'),
         const SizedBox(height: 16),
         SegmentedButton<String>(
           segments: const [
             ButtonSegment(value: 'NORMAL', label: Text('正常打卡')),
-            ButtonSegment(value: 'FIELD', label: Text('出勤')),
+            ButtonSegment(value: 'FIELD', label: Text('外勤')),
           ],
           selected: {kind},
           onSelectionChanged: busy
@@ -308,14 +311,14 @@ class _PunchState extends State<PunchPage> with Guard<PunchPage> {
         if (position != null)
           Card(
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(OaTokens.space16),
               child: Text(
                 '${locationSourceLabel(locationSource)} · 采集时间 ${timeOf(locatedAt?.toIso8601String())}\n纬度 ${position!.latitude.toStringAsFixed(6)}，经度 ${position!.longitude.toStringAsFixed(6)}\n精度 ${position!.accuracy.toStringAsFixed(1)} 米\nWi-Fi：${ssid ?? '未能获取，由服务器校验出口 IP'}',
               ),
             ),
           ),
         FilledButton.icon(
-          icon: const Icon(Icons.my_location),
+          icon: const Icon(Icons.my_location_outlined),
           label: const Text('获取定位并打卡'),
           onPressed: busy
               ? null
@@ -521,7 +524,7 @@ class _MessageState extends State<MessagePage> with Guard<MessagePage> {
         IconButton(
           tooltip: '刷新',
           onPressed: busy ? null : load,
-          icon: const Icon(Icons.refresh),
+          icon: const Icon(Icons.refresh_outlined),
         ),
       ],
     ),
@@ -532,19 +535,19 @@ class _MessageState extends State<MessagePage> with Guard<MessagePage> {
               await go(context, RequestFormPage(api: widget.api));
               if (mounted) load();
             },
-      icon: const Icon(Icons.add),
+      icon: const Icon(Icons.add_outlined),
       label: const Text('提交申请'),
     ),
     body: Column(
       children: [
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(OaTokens.space12),
           child: Row(
             children: [
               for (final c in categories)
                 Padding(
-                  padding: const EdgeInsets.only(right: 8),
+                  padding: const EdgeInsets.only(right: OaTokens.space8),
                   child: ChoiceChip(
                     label: Text(labels[c]!),
                     selected: category == c,
@@ -568,7 +571,12 @@ class _MessageState extends State<MessagePage> with Guard<MessagePage> {
           child: RefreshIndicator(
             onRefresh: load,
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
+              padding: const EdgeInsets.fromLTRB(
+                OaTokens.space16,
+                0,
+                OaTokens.space16,
+                OaTokens.space100,
+              ),
               children: [
                 if (rows.isEmpty && !busy) empty('暂无${labels[category]}'),
                 for (final r in rows)
@@ -581,7 +589,7 @@ class _MessageState extends State<MessagePage> with Guard<MessagePage> {
                             : category == 'notifications'
                             ? Icons.mail_outline
                             : Icons.description_outlined,
-                        color: const Color(0xff176b64),
+                        color: OaTokens.primary,
                       ),
                       title: Text(
                         '${r['item_type'] == 'CONTRACT'
@@ -594,17 +602,34 @@ class _MessageState extends State<MessagePage> with Guard<MessagePage> {
                             ? '审批单 · '
                             : ''}${r['title'] ?? r['message'] ?? '${textOf(r['kind'])} · ${r['user_name']}'}',
                       ),
-                      subtitle: Text(
-                        category == 'announcements' ||
-                                category == 'notifications'
-                            ? '${r['read_at'] == null ? '未读' : '已读'} · ${timeOf(r['published_at'] ?? r['created_at'])}'
-                            : r['item_type'] == 'ASSET'
-                            ? '${assetStates[r['status']]} · ${r['user_name']}'
-                            : r['item_type'] == 'TASK'
-                            ? '${taskStates[r['status']]} · 截止：${timeOf(r['due_at'])}${r['overdue'] == true ? '（已过期）' : ''}'
-                            : '${textOf(r['status'])} · ${r['reason'] ?? ''}\n${timeOf(r['created_at'])}',
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (r['status'] != null)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: OaTokens.space4,
+                              ),
+                              child: StatusChip(
+                                r['status'],
+                                label: r['item_type'] == 'TASK'
+                                    ? taskStates[r['status']]
+                                    : null,
+                              ),
+                            ),
+                          Text(
+                            category == 'announcements' ||
+                                    category == 'notifications'
+                                ? '${r['read_at'] == null ? '未读' : '已读'} · ${timeOf(r['published_at'] ?? r['created_at'])}'
+                                : r['item_type'] == 'ASSET'
+                                ? '${r['user_name']}'
+                                : r['item_type'] == 'TASK'
+                                ? '截止：${timeOf(r['due_at'])}${r['overdue'] == true ? '（已过期）' : ''}'
+                                : '${r['reason'] ?? ''}\n${timeOf(r['created_at'])}',
+                          ),
+                        ],
                       ),
-                      trailing: const Icon(Icons.chevron_right),
+                      trailing: const Icon(Icons.chevron_right_outlined),
                     ),
                   ),
                 Row(
@@ -667,12 +692,12 @@ class _AnnouncementState extends State<AnnouncementPage>
       actions: [
         IconButton(
           onPressed: busy ? null : load,
-          icon: const Icon(Icons.refresh),
+          icon: const Icon(Icons.refresh_outlined),
         ),
       ],
     ),
     body: ListView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(OaTokens.space20),
       children: [
         feedback,
         if (data != null) ...[
@@ -686,7 +711,7 @@ class _AnnouncementState extends State<AnnouncementPage>
           section('附件'),
           for (final f in records(data!['attachments']))
             ListTile(
-              leading: const Icon(Icons.download),
+              leading: const Icon(Icons.download_outlined),
               title: Text('${f['original_name']}'),
               onTap: busy
                   ? null
@@ -756,26 +781,29 @@ class _DirectoryState extends State<DirectoryPage> with Guard<DirectoryPage> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('通讯录')),
     body: ListView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(OaTokens.space20),
       children: [
         field(search, '搜索姓名、工号或部门', max: 100),
-        DropdownButtonFormField<int?>(
-          initialValue: department,
-          decoration: const InputDecoration(labelText: '组织部门（包含下级）'),
-          items: [
-            const DropdownMenuItem<int?>(value: null, child: Text('全部部门')),
-            for (final d in tree)
-              DropdownMenuItem<int?>(value: d['id'], child: Text(d['label'])),
-          ],
-          onChanged: busy
-              ? null
-              : (v) {
-                  setState(() {
-                    department = v;
-                    offset = 0;
-                  });
-                  load();
-                },
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: OaTokens.space8),
+          child: DropdownButtonFormField<int?>(
+            initialValue: department,
+            decoration: const InputDecoration(labelText: '组织部门（包含下级）'),
+            items: [
+              const DropdownMenuItem<int?>(value: null, child: Text('全部部门')),
+              for (final d in tree)
+                DropdownMenuItem<int?>(value: d['id'], child: Text(d['label'])),
+            ],
+            onChanged: busy
+                ? null
+                : (v) {
+                    setState(() {
+                      department = v;
+                      offset = 0;
+                    });
+                    load();
+                  },
+          ),
         ),
         FilledButton(
           onPressed: busy
@@ -873,12 +901,12 @@ class _ProfileState extends State<ProfilePage> with Guard<ProfilePage> {
         IconButton(
           tooltip: '刷新余额',
           onPressed: busy ? null : load,
-          icon: const Icon(Icons.refresh),
+          icon: const Icon(Icons.refresh_outlined),
         ),
       ],
     ),
     body: ListView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(OaTokens.space20),
       children: [
         feedback,
         if (data != null) ...[
@@ -922,7 +950,7 @@ class _ProfileState extends State<ProfilePage> with Guard<ProfilePage> {
           ),
         ),
         ListTile(
-          leading: const Icon(Icons.devices),
+          leading: const Icon(Icons.devices_outlined),
           title: const Text('登录设备'),
           onTap: () => go(
             context,
@@ -986,25 +1014,25 @@ class _SessionState extends State<SessionPage> with Guard<SessionPage> {
       actions: [
         IconButton(
           onPressed: busy ? null : load,
-          icon: const Icon(Icons.refresh),
+          icon: const Icon(Icons.refresh_outlined),
         ),
       ],
     ),
     body: ListView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(OaTokens.space20),
       children: [
         feedback,
         const Text('会话有效期8小时；修改密码后全部旧会话失效。'),
         for (final s in sessions)
           Card(
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(OaTokens.space16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     '${s['device_name']} · ${s['platform']}${s['current'] == true ? '（当前设备）' : ''}',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
+                    style: const TextStyle(fontWeight: OaTokens.fontWeightBold),
                   ),
                   Text(
                     '登录：${timeOf(s['created_at'])}\n到期：${timeOf(s['expires_at'])}',

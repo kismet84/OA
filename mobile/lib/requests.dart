@@ -1,6 +1,8 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import 'theme.dart';
+
 import 'api.dart';
 import 'urge_button.dart';
 import 'ui.dart';
@@ -422,7 +424,7 @@ class _RequestFormState extends State<RequestFormPage>
     body: AbsorbPointer(
       absorbing: busy,
       child: ListView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(OaTokens.space20),
         children: [
           feedback,
           if (draftNotice != null)
@@ -453,61 +455,70 @@ class _RequestFormState extends State<RequestFormPage>
           ),
           if (!ready && !busy)
             TextButton(onPressed: load, child: const Text('重新加载假期与同事')),
-          DropdownButtonFormField<String>(
-            initialValue: kind,
-            key: ValueKey(kind),
-            decoration: const InputDecoration(labelText: '申请类型'),
-            items: [
-              for (final k in [
-                'LEAVE',
-                'TRAVEL',
-                'OUTING',
-                'EXPENSE',
-                'OVERTIME',
-                'CORRECTION',
-              ])
-                DropdownMenuItem(value: k, child: Text(textOf(k))),
-            ],
-            onChanged: (v) => setState(() {
-              kind = v!;
-              files.clear();
-            }),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: OaTokens.space8),
+            child: DropdownButtonFormField<String>(
+              initialValue: kind,
+              key: ValueKey(kind),
+              decoration: const InputDecoration(labelText: '申请类型'),
+              items: [
+                for (final k in [
+                  'LEAVE',
+                  'TRAVEL',
+                  'OUTING',
+                  'EXPENSE',
+                  'OVERTIME',
+                  'CORRECTION',
+                ])
+                  DropdownMenuItem(value: k, child: Text(textOf(k))),
+              ],
+              onChanged: (v) => setState(() {
+                kind = v!;
+                files.clear();
+              }),
+            ),
           ),
           if (kind == 'LEAVE') ...[
-            DropdownButtonFormField<int>(
-              key: ValueKey(typeId),
-              initialValue: typeId,
-              decoration: const InputDecoration(labelText: '假期类型'),
-              items: [
-                for (final t in types)
-                  DropdownMenuItem<int>(
-                    value: t['id'],
-                    child: Text(
-                      '${t['name']}${t['proof_required'] == true ? '（必须证明）' : ''}',
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: OaTokens.space8),
+              child: DropdownButtonFormField<int>(
+                key: ValueKey(typeId),
+                initialValue: typeId,
+                decoration: const InputDecoration(labelText: '假期类型'),
+                items: [
+                  for (final t in types)
+                    DropdownMenuItem<int>(
+                      value: t['id'],
+                      child: Text(
+                        '${t['name']}${t['proof_required'] == true ? '（必须证明）' : ''}',
+                      ),
                     ),
-                  ),
-              ],
-              onChanged: (v) => setState(() => typeId = v),
+                ],
+                onChanged: (v) => setState(() => typeId = v),
+              ),
             ),
             if (types.isEmpty && ready) const Text('暂无启用的假期类型，请联系管理员'),
           ],
           if (kind == 'CORRECTION') ...[
             section('补卡 · 北京时间'),
-            DropdownButtonFormField<String>(
-              initialValue: punchKind,
-              decoration: const InputDecoration(labelText: '补卡类型'),
-              items: [
-                for (final k in ['NORMAL', 'FIELD'])
-                  DropdownMenuItem(value: k, child: Text(textOf(k))),
-              ],
-              onChanged: (v) => setState(() => punchKind = v!),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: OaTokens.space8),
+              child: DropdownButtonFormField<String>(
+                initialValue: punchKind,
+                decoration: const InputDecoration(labelText: '补卡类型'),
+                items: [
+                  for (final k in ['NORMAL', 'FIELD'])
+                    DropdownMenuItem(value: k, child: Text(textOf(k))),
+                ],
+                onChanged: (v) => setState(() => punchKind = v!),
+              ),
             ),
             OutlinedButton(
               onPressed: pickCorrection,
               child: Text('补卡时间 ${timeOf(correctionAt.toIso8601String())}'),
             ),
             Text(
-              '补卡日期结束后 ${policy?['correction_days'] ?? 3} 个自然日内提交。出勤须有该时刻有效的已批准出差或外出。无需当前位置或历史网络；批准后不可撤销。',
+              '补卡日期结束后 ${policy?['correction_days'] ?? 3} 个自然日内提交。外勤须有该时刻有效的已批准出差或外出。无需当前位置或历史网络；批准后不可撤销。',
             ),
           ] else if (kind != 'EXPENSE') ...[
             section('起止时段 · 北京时间'),
@@ -564,7 +575,7 @@ class _RequestFormState extends State<RequestFormPage>
             for (final (i, l) in lines.indexed)
               Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(OaTokens.space12),
                   child: Column(
                     children: [
                       Text('第 ${i + 1} 行'),
@@ -607,7 +618,7 @@ class _RequestFormState extends State<RequestFormPage>
                   .map((u) => u['name'])
                   .join('、'),
             ),
-            trailing: const Icon(Icons.chevron_right),
+            trailing: const Icon(Icons.chevron_right_outlined),
             onTap: pickCc,
           ),
           section(kind == 'EXPENSE' ? '票据（必填，可多张）' : '证明文件'),
@@ -617,13 +628,13 @@ class _RequestFormState extends State<RequestFormPage>
               title: Text('${f['name']}'),
               trailing: IconButton(
                 tooltip: '移除附件',
-                icon: const Icon(Icons.close),
+                icon: const Icon(Icons.close_outlined),
                 onPressed: () => setState(() => files.remove(f)),
               ),
             ),
           OutlinedButton.icon(
             onPressed: pickFiles,
-            icon: const Icon(Icons.upload_file),
+            icon: const Icon(Icons.upload_file_outlined),
             label: Text(kind == 'EXPENSE' ? '上传票据' : '上传或替换证明'),
           ),
           const SizedBox(height: 24),
@@ -698,12 +709,12 @@ class _DetailState extends State<RequestDetailPage>
         IconButton(
           tooltip: '刷新',
           onPressed: busy ? null : load,
-          icon: const Icon(Icons.refresh),
+          icon: const Icon(Icons.refresh_outlined),
         ),
       ],
     ),
     body: ListView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(OaTokens.space20),
       children: [
         feedback,
         if (detail != null) ...[
@@ -740,9 +751,10 @@ class _DetailState extends State<RequestDetailPage>
               child: const Text('复制再发起'),
             ),
           Text(
-            '${textOf(detail!['kind'])} · ${textOf(detail!['status'])}',
+            textOf(detail!['kind']),
             style: Theme.of(context).textTheme.headlineSmall,
           ),
+          StatusChip(detail!['status']),
           section('申请信息'),
           Text(
             '申请人：${detail!['user_name']}\n提交：${timeOf(detail!['created_at'])}',
@@ -772,7 +784,7 @@ class _DetailState extends State<RequestDetailPage>
                         '证明文件',
                       ),
                     ),
-              icon: const Icon(Icons.download),
+              icon: const Icon(Icons.download_outlined),
               label: const Text('下载证明文件'),
             ),
           if (detail!['kind'] == 'EXPENSE') ...[
@@ -789,7 +801,7 @@ class _DetailState extends State<RequestDetailPage>
               const Text('历史单据未上传票据'),
             for (final f in records(detail!['attachments']))
               ListTile(
-                leading: const Icon(Icons.download),
+                leading: const Icon(Icons.download_outlined),
                 title: Text('${f['original_name']}'),
                 onTap: busy
                     ? null

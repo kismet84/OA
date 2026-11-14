@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'theme.dart';
+
 import 'api.dart';
 import 'ui.dart';
 import 'requests.dart';
@@ -12,11 +14,11 @@ const attendanceLabels = {
   'LATE_EARLY': '迟到及早退',
   'MISSING': '缺卡',
   'LEAVE': '请假',
-  'FIELD': '外勤出勤',
+  'FIELD': '外勤',
   'REST': '休息日',
   'EXCLUDED': '未纳入统计',
   'FUTURE': '未来日期',
-  'IN_PROGRESS': '进行中',
+  'IN_PROGRESS': OaTokens.statusInProgressLabel,
   'RECORDED': '无打卡记录（规则关闭）',
   'PUNCHED': '已打卡（规则关闭）',
 };
@@ -76,7 +78,7 @@ class _AttendanceState extends State<AttendancePage>
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('我的本月考勤')),
     body: ListView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(OaTokens.space20),
       children: [
         feedback,
         TextField(

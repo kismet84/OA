@@ -64,7 +64,7 @@ async function fixture(request: APIRequestContext) {
 }
 async function login(page: Page, no: string, password = 'Calendar@2026Changed') {
   await page.goto('/staff/');
-  await page.getByLabel('工号 / 手机号').fill(no);
+  await page.getByLabel('工号或手机号').fill(no);
   await page.getByLabel('密码', { exact: true }).fill(password);
   await page.getByRole('button', { name: '登录员工办公' }).click();
   await expect(page.locator('nav')).toBeVisible();
@@ -150,7 +150,7 @@ test('员工网页完整预定、冲突、通知回复、修改重置、取消�
 test('中文管理员维护会议室、创建会议、筛选和取消', async ({ page, request }) => {
   const f = await fixture(request);
   await page.goto('/');
-  await page.getByLabel('工号 / 手机号').fill('admin');
+  await page.getByLabel('工号或手机号').fill('admin');
   await page
     .getByLabel('密码', { exact: true })
     .fill(process.env.OA_ADMIN_PASSWORD || 'Admin@2026Verified');

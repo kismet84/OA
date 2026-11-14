@@ -14,7 +14,7 @@ defineProps<{ rows: Row[]; columns: { key: string; label: string }[] }>();
       <tbody>
         <tr v-for="(r, i) in rows" :key="r.item_type ? r.item_type+':'+r.id : (r.id ?? i)">
           <td v-for="c in columns" :key="c.key">
-            <span :class="c.key === 'status' ? ['badge', String(r[c.key]).toLowerCase()] : ''">{{
+            <span :class="['status', 'status_text', 'state', 'payment_status', 'asset_status'].includes(c.key) ? ['badge', String(c.key === 'payment_status' ? r[c.key] : (r.status || r.asset_status || r[c.key])).toLowerCase()] : ''">{{
               display(r[c.key])
             }}</span>
           </td>

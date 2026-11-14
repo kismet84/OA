@@ -7,7 +7,7 @@ const png = Buffer.from(
 );
 async function login(page: Page, no: string, admin = false) {
   await page.goto(admin ? '/' : '/staff/');
-  await page.getByLabel('工号 / 手机号').fill(no);
+  await page.getByLabel('工号或手机号').fill(no);
   await page
     .getByLabel('密码', { exact: true })
     .fill(admin ? process.env.OA_ADMIN_PASSWORD || 'Admin@2026Verified' : 'Docs@2026Changed');

@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 
+import 'theme.dart';
+
 import 'api.dart';
 import 'ui.dart';
 
 const visitorStates = {
-  'WAITING': '待到访',
-  'ARRIVED': '已到访',
-  'LEFT': '已离开',
+  'WAITING': OaTokens.statusWaitingLabel,
+  'ARRIVED': OaTokens.statusArrivedLabel,
+  'LEFT': OaTokens.statusLeftLabel,
   'CANCELLED': '已取消',
   'EXPIRED': '已过期',
 };
@@ -135,13 +137,13 @@ class _VisitorsState extends State<VisitorsPage> with Guard<VisitorsPage> {
       actions: [
         IconButton(
           onPressed: busy ? null : () => run(fetch),
-          icon: const Icon(Icons.refresh),
+          icon: const Icon(Icons.refresh_outlined),
           tooltip: '刷新访客',
         ),
       ],
     ),
     body: ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(OaTokens.space16),
       children: [
         feedback,
         FilledButton(
@@ -149,19 +151,22 @@ class _VisitorsState extends State<VisitorsPage> with Guard<VisitorsPage> {
           child: const Text('预约访客'),
         ),
         const Text('无需审批。时间按北京时间填写，签到后将在消息中心通知您。'),
-        DropdownButtonFormField<String>(
-          initialValue: status,
-          decoration: const InputDecoration(labelText: '访客状态'),
-          items: [
-            const DropdownMenuItem(value: '', child: Text('全部状态')),
-            for (final e in visitorStates.entries)
-              DropdownMenuItem(value: e.key, child: Text(e.value)),
-          ],
-          onChanged: (v) {
-            status = v!;
-            offset = 0;
-            run(fetch);
-          },
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: OaTokens.space8),
+          child: DropdownButtonFormField<String>(
+            initialValue: status,
+            decoration: const InputDecoration(labelText: '访客状态'),
+            items: [
+              const DropdownMenuItem(value: '', child: Text('全部状态')),
+              for (final e in visitorStates.entries)
+                DropdownMenuItem(value: e.key, child: Text(e.value)),
+            ],
+            onChanged: (v) {
+              status = v!;
+              offset = 0;
+              run(fetch);
+            },
+          ),
         ),
         ExpansionTile(
           title: const Text('更多筛选'),
@@ -184,7 +189,11 @@ class _VisitorsState extends State<VisitorsPage> with Guard<VisitorsPage> {
         for (final r in rows)
           Card(
             child: ListTile(
-              title: Text('${r['name']} · ${visitorStates[r['status']]}'),
+              title: Text('${r['name']}'),
+              leading: StatusChip(
+                r['status'],
+                label: visitorStates[r['status']],
+              ),
               subtitle: Text(
                 '访客码：${r['code']}\n${timeOf(r['start_at'])} 至 ${timeOf(r['end_at'])}\n${r['company']} · ${r['phone']}',
               ),
@@ -262,7 +271,7 @@ class _VisitorEditState extends State<VisitorEditPage>
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('预约访客')),
     body: ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(OaTokens.space16),
       children: [
         const Text('本人作为接待人。姓名、手机号等仅用于来访登记。无需审批，凭六位访客码到前台签到。'),
         feedback,
@@ -314,17 +323,21 @@ class _VisitorDetailState extends State<VisitorDetailPage>
       actions: [
         IconButton(
           onPressed: busy ? null : () => run(fetch),
-          icon: const Icon(Icons.refresh),
+          icon: const Icon(Icons.refresh_outlined),
           tooltip: '刷新状态',
         ),
       ],
     ),
     body: ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(OaTokens.space16),
       children: [
         feedback,
         if (detail != null) ...[
-          section('${detail!['name']} · ${visitorStates[detail!['status']]}'),
+          StatusChip(
+            detail!['status'],
+            label: visitorStates[detail!['status']],
+          ),
+          section('${detail!['name']}'),
           SelectableText(
             '访客码：${detail!['code']}',
             style: Theme.of(context).textTheme.headlineSmall,

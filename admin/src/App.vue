@@ -144,14 +144,14 @@ const nav = computed(() => isAdmin.value ? [
   { key: 'balances', title: '假期余额', icon: '余' },
   { key: 'balance-history', title: '余额流水', icon: '账' },
   { key: 'workflow', title: '审批分流', icon: '流' },
-  { key: 'requests', title: '审批单据', icon: '审' },
+  { key: 'requests', title: '审批与申请', icon: '审' },
   { key: 'punches', title: '打卡记录', icon: '勤' },
   {key:'attendance-rules',title:'考勤规则',icon:'规'}, {key:'attendance-monthly',title:'月度考勤',icon:'月'},
   ...(development.value ? [{ key: 'simulator', title: '模拟打卡', icon: '测' }] : []),
   { key: 'messages', title: '消息中心', icon: '信' },
   { key: 'announcements', title: '公告管理', icon: '告' },
   { key: 'audit', title: '操作审计', icon: '志' },
-] : [{key:'visitors',title:'访客管理',icon:'访'}, {key:'contracts',title:'合同管理',icon:'合'}, { key: 'assets', title: '资产领用', icon: '资' }, { key: 'requests', title: '审批单据', icon: '审' }, { key: 'messages', title: '消息中心', icon: '信' }]);
+] : [{key:'visitors',title:'访客管理',icon:'访'}, {key:'contracts',title:'合同管理',icon:'合'}, { key: 'assets', title: '资产领用', icon: '资' }, { key: 'requests', title: '审批与申请', icon: '审' }, { key: 'messages', title: '消息中心', icon: '信' }]);
 const pageTitle = computed(() => nav.value.find((n) => n.key === page.value)?.title || '管理后台');
 const enabledUsers = computed(() => users.value.filter((u) => u.enabled));
 const nameOf = (id: number | null) => users.value.find((u) => u.id === id)?.name || '未指定';
@@ -586,7 +586,7 @@ onMounted(async () => {
         <h2>管理员登录</h2>
         <p class="muted">使用工号或手机号登录管理后台。</p>
         <label
-          >工号 / 手机号<input v-model="loginForm.login" autocomplete="username" required /></label
+          >工号或手机号<input v-model="loginForm.login" autocomplete="username" required /></label
         ><label
           >密码<input
             v-model="loginForm.password"
@@ -667,9 +667,9 @@ onMounted(async () => {
             "
           >
             修改密码</button
-          ><button @click="signOut">退出</button>
+          ><button @click="signOut">退出登录</button>
         </div>
-      </header><p v-if="page==='requests'"><button :disabled="busy" @click="run(async()=>{pendingOnly=!pendingOnly;offset=0;await load()})">{{pendingOnly?'查看全部审批单据':'仅待我审批'}}</button><button v-if="isAdmin||me.roles.includes('FINANCE')" :disabled="busy" @click="run(()=>download('/admin/exports/expenses-monthly.csv?month='+new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit'}).format(new Date()),'本月报销汇总.csv'))">导出月度报销汇总</button></p>
+      </header><p v-if="page==='requests'"><button :disabled="busy" @click="run(async()=>{pendingOnly=!pendingOnly;offset=0;await load()})">{{pendingOnly?'查看全部审批与申请':'仅待我审批'}}</button><button v-if="isAdmin||me.roles.includes('FINANCE')" :disabled="busy" @click="run(()=>download('/admin/exports/expenses-monthly.csv?month='+new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit'}).format(new Date()),'本月报销汇总.csv'))">导出月度报销汇总</button></p>
       <div v-if="error" class="notice error" role="alert">
         {{ error }}<button @click="error = ''" aria-label="关闭错误">×</button>
       </div>
@@ -682,7 +682,7 @@ onMounted(async () => {
           <p class="eyebrow">组织与出勤</p>
           <h2>把日常管理，放在一个工作区。</h2>
           <p>维护组织和审批规则，核对申请与打卡记录。所有管理操作均留有审计记录。</p>
-          <button class="primary" @click="run(() => navigate('requests'))">查看审批单据 →</button>
+          <button class="primary" @click="run(() => navigate('requests'))">查看审批与申请 →</button>
         </div>
         <div class="stats">
           <div class="card">
@@ -773,7 +773,7 @@ onMounted(async () => {
         <span class="badge pending">仅开发环境</span>
         <h2>模拟打卡</h2>
         <p class="muted">
-          手动输入设备定位和网络。出勤仍须在批准的出差或外出时段内；模拟记录会单独标记并留审计。
+          手动输入设备定位和网络。外勤仍须在批准的出差或外出时段内；模拟记录会单独标记并留审计。
         </p>
         <form @submit.prevent="simulate">
           <label
@@ -786,7 +786,7 @@ onMounted(async () => {
           ><label
             >打卡类型<select v-model="simulator.kind">
               <option value="NORMAL">正常打卡</option>
-              <option value="FIELD">出勤</option>
+              <option value="FIELD">外勤</option>
             </select></label
           >
           <div class="form-grid">
@@ -1043,7 +1043,7 @@ onMounted(async () => {
             </div>
             <div>
               <dt>申请类型 / 状态</dt>
-              <dd>{{ display(detail.kind) }} / {{ display(detail.status) }}</dd>
+              <dd>{{ display(detail.kind) }} / <span :class="['badge', String(detail.status).toLowerCase()]">{{ display(detail.status) }}</span></dd>
             </div>
             <div>
               <dt>开始时间</dt>
@@ -1302,9 +1302,9 @@ onMounted(async () => {
                 </option>
               </select></label
             ><template v-if="application.kind === 'CORRECTION'">
-              <label>补卡类型<select v-model="application.punchKind"><option value="NORMAL">正常打卡</option><option value="FIELD">出勤</option></select></label>
+              <label>补卡类型<select v-model="application.punchKind"><option value="NORMAL">正常打卡</option><option value="FIELD">外勤</option></select></label>
               <label>补卡时间（北京时间）<input v-model="application.correctionAt" type="datetime-local" required /></label>
-              <p class="muted">仅可补交过去时刻；出勤须在本人有效的已批准出差或外出时段内。不要求当前定位和历史网络。</p>
+              <p class="muted">仅可补交过去时刻；外勤须在本人有效的已批准出差或外出时段内。不要求当前定位和历史网络。</p>
             </template><template v-else-if="application.kind !== 'EXPENSE'"
               ><div class="form-grid">
                 <label>开始日期<input v-model="application.startDate" type="date" required /></label

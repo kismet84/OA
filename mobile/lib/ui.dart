@@ -1,6 +1,9 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+
+import 'theme.dart';
+
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -13,15 +16,15 @@ const labels = {
   'TRAVEL': '出差',
   'OUTING': '外出',
   'EXPENSE': '报销',
-  'PENDING': '待审批',
-  'APPROVED': '已批准',
-  'REJECTED': '已驳回',
-  'WITHDRAWN': '已撤回',
-  'CANCELLED': '已撤销',
-  'UNPAID': '待支付',
-  'PAID': '已支付',
+  'PENDING': OaTokens.statusPendingLabel,
+  'APPROVED': OaTokens.statusApprovedLabel,
+  'REJECTED': OaTokens.statusRejectedLabel,
+  'WITHDRAWN': OaTokens.statusWithdrawnLabel,
+  'CANCELLED': OaTokens.statusCancelledLabel,
+  'UNPAID': OaTokens.statusUnpaidLabel,
+  'PAID': OaTokens.statusPaidLabel,
   'NORMAL': '正常打卡',
-  'FIELD': '出勤',
+  'FIELD': '外勤',
   'EMPLOYEE': '员工',
   'SUPERVISOR': '直属上级',
   'DEPT_HEAD': '部门负责人',
@@ -93,7 +96,7 @@ mixin Guard<T extends StatefulWidget> on State<T> {
       ),
       if (error != null)
         Padding(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(OaTokens.space12),
           child: Text(
             error!,
             style: TextStyle(color: Theme.of(context).colorScheme.error),
@@ -111,29 +114,41 @@ Widget field(
   int? max,
   TextInputType? keyboard,
 }) => Padding(
-  padding: const EdgeInsets.symmetric(vertical: 8),
+  padding: const EdgeInsets.symmetric(vertical: OaTokens.space8),
   child: TextField(
     controller: controller,
     obscureText: secret,
     maxLines: lines,
     maxLength: max,
     keyboardType: keyboard,
-    decoration: InputDecoration(
-      labelText: label,
-      border: const OutlineInputBorder(),
-    ),
+    decoration: InputDecoration(labelText: label),
   ),
 );
 Widget section(String title) => Padding(
-  padding: const EdgeInsets.only(top: 20, bottom: 8),
+  padding: const EdgeInsets.only(
+    top: OaTokens.space20,
+    bottom: OaTokens.space8,
+  ),
   child: Text(
     title,
-    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+    style: const TextStyle(
+      fontSize: OaTokens.fontSizeTitle,
+      fontWeight: OaTokens.fontWeightBold,
+    ),
   ),
 );
 Widget empty(String message) => Padding(
-  padding: const EdgeInsets.all(28),
-  child: Center(child: Text(message)),
+  padding: const EdgeInsets.all(OaTokens.space28),
+  child: Center(
+    child: Text(
+      message,
+      textAlign: TextAlign.center,
+      style: const TextStyle(
+        color: OaTokens.textMuted,
+        fontSize: OaTokens.fontSizeBody,
+      ),
+    ),
+  ),
 );
 Future<void> go(BuildContext context, Widget page) =>
     Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));

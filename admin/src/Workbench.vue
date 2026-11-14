@@ -9,7 +9,7 @@ const {summary:messages}=useMessageSummary();
 const showAttendance=ref(false),actor=ref<any>(null);
 const currentMonth=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit'}).format(new Date());
 const [yy,mm]=currentMonth.split('-').map(Number);const lastDay=new Date(yy!,mm!,0).getDate();
-const exports=[['本月考勤汇总','/admin/exports/attendance-monthly.csv?month='+currentMonth],['本月报销汇总','/admin/exports/expenses-monthly.csv?month='+currentMonth],['本月审批单据','/admin/exports/requests.csv?from='+currentMonth+'-01&to='+currentMonth+'-'+lastDay],['合同台账','/contracts/export']];
+const exports=[['本月考勤汇总','/admin/exports/attendance-monthly.csv?month='+currentMonth],['本月报销汇总','/admin/exports/expenses-monthly.csv?month='+currentMonth],['本月审批与申请','/admin/exports/requests.csv?from='+currentMonth+'-01&to='+currentMonth+'-'+lastDay],['合同台账','/contracts/export']];
 async function exportFile(path:string,title:string){try{await download(path,title+'.csv')}catch(e){error.value=e instanceof Error?e.message:'导出失败'}}
 onMounted(async()=>{try{actor.value=(await api('/auth/me')).user}catch{}});
 const visitors=ref<Row|null>(null);
@@ -37,7 +37,7 @@ async function punches(){
   try { records.value=await api('/punches?'+new URLSearchParams({userId:selected.value,from:data.value!.from,to:data.value!.to,offset:String(recordOffset.value)})); }
   catch(e){error.value=e instanceof Error?e.message:'加载记录失败'}
 }
-const attendance=[['normalPunches','正常打卡次数'],['fieldPunches','出勤打卡次数'],['recordedDays','有打卡记录天数（人日）'],['approvedCorrections','已批准补卡次数'],['leaveDays','请假天数'],['travelDays','出差天数'],['outingDays','外出天数'],['overtimeDays','加班天数'],['overtimeCreditedDays','加班折算调休天数']];
+const attendance=[['normalPunches','正常打卡次数'],['fieldPunches','外勤打卡次数'],['recordedDays','有打卡记录天数（人日）'],['approvedCorrections','已批准补卡次数'],['leaveDays','请假天数'],['travelDays','出差天数'],['outingDays','外出天数'],['overtimeDays','加班天数'],['overtimeCreditedDays','加班折算调休天数']];
 const cols=(pairs:string[])=>pairs.map(p=>{const [key,label]=p.split(':');return {key:key!,label:label!}});
 </script>
 <template>
@@ -80,8 +80,8 @@ const cols=(pairs:string[])=>pairs.map(p=>{const [key,label]=p.split(':');return
 </template>
 <style scoped>
 .workbench { min-width: 0; }
-.workbench .stats { grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); margin: 18px 0; }
-.workbench details { margin: 18px 0; }
-.workbench summary { cursor: pointer; font-weight: 600; }
+.workbench .stats { grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); margin: var(--space-16) 0; }
+.workbench details { margin: var(--space-16) 0; }
+.workbench summary { cursor: pointer; font-weight: var(--font-weight-semibold); }
 .workbench select { max-width: 100%; }
 </style>

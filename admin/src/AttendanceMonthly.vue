@@ -4,7 +4,7 @@ import {api,download,display,type Actor,type Row} from './api';
 import DataTable from './DataTable.vue';
 const props=defineProps<{me?:Actor;self?:boolean}>(),emit=defineEmits<{correct:[draft:Row]}>();
 const month=ref(new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit'}).format(new Date())),department=ref(''),departments=ref<Row[]>([]),rows=ref<Row[]>([]),daily=ref<Row[]|null>(null),error=ref(''),busy=ref(false);
-const states:Row={NORMAL:'正常',LATE:'迟到',EARLY:'早退',LATE_EARLY:'迟到及早退',MISSING:'缺卡',LEAVE:'请假',FIELD:'外勤出勤',REST:'休息日',EXCLUDED:'未纳入统计',FUTURE:'未来日期',IN_PROGRESS:'进行中',RECORDED:'无打卡记录（规则关闭）',PUNCHED:'已打卡（规则关闭）'};
+const states:Row={NORMAL:'正常',LATE:'迟到',EARLY:'早退',LATE_EARLY:'迟到及早退',MISSING:'缺卡',LEAVE:'请假',FIELD:'外勤',REST:'休息日',EXCLUDED:'未纳入统计',FUTURE:'未来日期',IN_PROGRESS:'进行中',RECORDED:'无打卡记录（规则关闭）',PUNCHED:'已打卡（规则关闭）'};
 const cols=(pairs:string[])=>pairs.map(p=>{const [key,label]=p.split(':');return {key:key!,label:label!}});
 async function run(fn:()=>Promise<void>){if(busy.value)return;busy.value=true;error.value='';try{await fn()}catch(e){error.value=e instanceof Error?e.message:'加载失败'}finally{busy.value=false}}
 async function details(id:number){const from=month.value+'-01';const [y,m]=month.value.split('-').map(Number);const end=new Date(y!,m!,0).getDate();daily.value=await api('/attendance/daily?'+new URLSearchParams({userId:String(id),from,to:month.value+'-'+end}))}

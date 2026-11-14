@@ -7,7 +7,7 @@ test('管理员通过中文页面维护组织、账号、审批并核对打卡',
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/');
-  await page.getByLabel('工号 / 手机号').fill('admin');
+  await page.getByLabel('工号或手机号').fill('admin');
   await page
     .getByLabel('密码', { exact: true })
     .fill(process.env.OA_ADMIN_PASSWORD || 'Admin@2026Verified');
@@ -50,7 +50,7 @@ test('管理员通过中文页面维护组织、账号、审批并核对打卡',
   await dialog.getByLabel('登记值').fill('浏览器验收WiFi' + suffix);
   await dialog.getByRole('button', { name: '保存', exact: true }).click();
   await expect(dialog).not.toBeVisible();
-  await page.locator('nav').getByRole('button', { name: '审批单据' }).click();
+  await page.locator('nav').getByRole('button', { name: '审批与申请' }).click();
   await page.getByRole('button', { name: '提交申请', exact: true }).click();
   dialog = page.getByRole('dialog');
   const employeeId = await dialog
@@ -93,7 +93,7 @@ test('管理员通过中文页面维护组织、账号、审批并核对打卡',
     await expect(page.getByRole('heading', { name, exact: true }).first()).toBeVisible();
   }
   await page.screenshot({ path: '../.runtime/admin-audit.png', fullPage: true });
-  await page.getByRole('button', { name: '退出', exact: true }).click();
+  await page.getByRole('button', { name: '退出登录', exact: true }).click();
   await expect(page.getByRole('heading', { name: '管理员登录' })).toBeVisible();
   expect(errors).toEqual([]);
 });
@@ -121,7 +121,7 @@ test('新管理员首次改密后才能进入工作台', async ({ page, request 
   expect(created.ok()).toBeTruthy();
   await request.post('/api/auth/logout', { headers });
   await page.goto('/');
-  await page.getByLabel('工号 / 手机号').fill(login);
+  await page.getByLabel('工号或手机号').fill(login);
   await page.getByLabel('密码', { exact: true }).fill('UiAdmin@2026Initial');
   await page.getByRole('button', { name: '登录管理后台', exact: true }).click();
   await expect(page.getByRole('heading', { name: '首次登录，请修改密码' })).toBeVisible();
@@ -130,18 +130,18 @@ test('新管理员首次改密后才能进入工作台', async ({ page, request 
   await page.getByLabel('新密码（10–72 位）').fill('UiAdmin@2026Changed');
   await page.getByRole('button', { name: '保存新密码' }).click();
   await expect(page.getByRole('heading', { name: '管理员登录' })).toBeVisible();
-  await page.getByLabel('工号 / 手机号').fill(login);
+  await page.getByLabel('工号或手机号').fill(login);
   await page.getByLabel('密码', { exact: true }).fill('UiAdmin@2026Changed');
   await page.getByRole('button', { name: '登录管理后台', exact: true }).click();
   await expect(page.getByRole('heading', { name: '工作台', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: '退出', exact: true }).click();
+  await page.getByRole('button', { name: '退出登录', exact: true }).click();
   await expect(page.getByRole('heading', { name: '管理员登录' })).toBeVisible();
 });
 
 test('正式环境隐藏模拟打卡并通过 HTTPS 登录', async ({ page }) => {
   test.skip(!process.env.OA_PROD_WEB, '由 verify-production.sh 启动正式环境和 HTTPS 后验证');
   await page.goto(process.env.OA_PROD_WEB!);
-  await page.getByLabel('工号 / 手机号').fill('admin');
+  await page.getByLabel('工号或手机号').fill('admin');
   await page
     .getByLabel('密码', { exact: true })
     .fill(process.env.OA_ADMIN_PASSWORD || 'Admin@2026Verified');
@@ -150,7 +150,7 @@ test('正式环境隐藏模拟打卡并通过 HTTPS 登录', async ({ page }) =>
   await expect(page.locator('nav').getByRole('button', { name: '模拟打卡' })).toHaveCount(0);
   await expect(page.locator('aside')).toContainText('正式环境');
   await page.screenshot({ path: '../.runtime/admin-production.png', fullPage: true });
-  await page.getByRole('button', { name: '退出', exact: true }).click();
+  await page.getByRole('button', { name: '退出登录', exact: true }).click();
   await expect(page.getByRole('heading', { name: '管理员登录' })).toBeVisible();
 });
 
@@ -172,10 +172,10 @@ test('报销页面校验明细和票据，管理员及财务登记支付更正',
   expect(created.ok()).toBeTruthy();
   const employeeId = (await created.json()).id;
   await page.goto('/');
-  await page.getByLabel('工号 / 手机号').fill('admin');
+  await page.getByLabel('工号或手机号').fill('admin');
   await page.getByLabel('密码', { exact: true }).fill(process.env.OA_ADMIN_PASSWORD || 'Admin@2026Verified');
   await page.getByRole('button', { name: '登录管理后台', exact: true }).click();
-  await page.locator('nav').getByRole('button', { name: '审批单据' }).click();
+  await page.locator('nav').getByRole('button', { name: '审批与申请' }).click();
   await page.getByRole('button', { name: '提交申请', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('代提交员工').selectOption(String(employeeId));
@@ -215,7 +215,7 @@ test('报销页面校验明细和票据，管理员及财务登记支付更正',
   await expect(dialog.getByRole('button', { name: '撤销申请', exact: true })).toHaveCount(0);
   await page.screenshot({ path: '../.runtime/admin-expense.png', fullPage: true });
   await dialog.getByRole('button', { name: '关闭弹窗' }).click();
-  await page.getByRole('button', { name: '退出', exact: true }).click();
+  await page.getByRole('button', { name: '退出登录', exact: true }).click();
   // 财务不依赖管理接口即可查询、下载和标记一级批准的报销。
   const login = 'pay' + suffix;
   expect((await request.post('/api/admin/users', { headers, data: {
@@ -225,7 +225,7 @@ test('报销页面校验明细和票据，管理员及财务登记支付更正',
   const first = await (await request.post('/api/auth/login', { data: { login, password: 'Finance@2026Initial' } })).json();
   expect((await request.post('/api/auth/password', { headers: { Authorization: 'Bearer ' + first.token },
     data: { oldPassword: 'Finance@2026Initial', newPassword: 'Finance@2026Changed' } })).ok()).toBeTruthy();
-  await page.getByLabel('工号 / 手机号').fill(login);
+  await page.getByLabel('工号或手机号').fill(login);
   await page.getByLabel('密码', { exact: true }).fill('Finance@2026Changed');
   await page.getByRole('button', { name: '登录管理后台', exact: true }).click();
   await expect(page.locator('nav').getByRole('button')).toHaveCount(5);

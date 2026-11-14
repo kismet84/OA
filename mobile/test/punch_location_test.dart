@@ -283,7 +283,7 @@ void main() {
     }
   });
 
-  test('正常与出勤均拒绝超过5分钟的旧缓存', () async {
+  test('正常与外勤均拒绝超过5分钟的旧缓存', () async {
     location.error = TimeoutException('test');
     location.locationManagerError = TimeoutException('test');
     for (final age in [

@@ -19,7 +19,7 @@ test('资产台账、员工申请、上级待办审批、行政发放、员工�
  };
  const manager=await make('m');const owner=await make('o',manager.id);
  const login=async(p:Page,no:string,admin=false)=>{
-  await p.goto(admin?'/':'/staff/');await p.getByLabel('工号 / 手机号').fill(no);await p.getByLabel('密码',{exact:true}).fill(admin?(process.env.OA_ADMIN_PASSWORD||'Admin@2026Verified'):'Asset@2026Changed');
+  await p.goto(admin?'/':'/staff/');await p.getByLabel('工号或手机号').fill(no);await p.getByLabel('密码',{exact:true}).fill(admin?(process.env.OA_ADMIN_PASSWORD||'Admin@2026Verified'):'Asset@2026Changed');
   await p.getByRole('button',{name:admin?'登录管理后台':'登录员工办公',exact:true}).click();await expect(p.locator('nav')).toBeVisible();
  };
  const nav=async(p:Page,name:string)=>{await p.locator('nav').getByRole('button',{name:new RegExp(name+'$')}).click()};

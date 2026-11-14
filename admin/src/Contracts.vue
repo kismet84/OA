@@ -5,7 +5,7 @@ import {onMounted,ref,reactive,watch} from 'vue';
 import {api,download,binary,type Actor,type Row} from './api';
 import DataTable from './DataTable.vue';
 const props=defineProps<{me:Actor;pendingOnly?:boolean;contractId?:number|null}>();
-const states:Row={DRAFT:'草稿',PENDING:'审批中',REJECTED:'已驳回',WITHDRAWN:'已撤回',TO_ARCHIVE:'待归档',ACTIVE:'履行中',EXPIRED:'已到期',TERMINATED:'已终止'};
+const states:Row={DRAFT:'草稿',PENDING:'待审批',REJECTED:'已驳回',WITHDRAWN:'已撤回',TO_ARCHIVE:'待归档',ACTIVE:'履行中',EXPIRED:'已到期',TERMINATED:'已终止'};
 const types:Row={PURCHASE:'采购',SALES:'销售',SERVICE:'服务',LEASE:'租赁',LABOR:'劳务',OTHER:'其他'};
 const rows=ref<Row[]>([]),detail=ref<Row|null>(null),editing=ref(false),editId=ref<number|null>(null),busy=ref(false),error=ref(''),message=ref(''),expiring=ref(0),offset=ref(0),sealed=ref<Row[]>([]),reason=ref('');
 const fields=[['code','合同编号（留空自动生成）'],['name','合同名称'],['counterparty','对方单位'],['contact','对方联系人'],['phone','联系电话'],['amount','金额（元，无固定金额可留空）'],['signedDate','签订日期'],['effectiveDate','生效日期'],['expiryDate','到期日期（留空为长期）'],['performance','付款或履约说明'],['note','备注']];

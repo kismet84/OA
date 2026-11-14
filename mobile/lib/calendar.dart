@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'theme.dart';
+
 import 'api.dart';
 import 'ui.dart';
 
@@ -64,7 +66,7 @@ class _CalendarState extends State<CalendarPage> with Guard<CalendarPage> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('日程与会议')),
     body: ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(OaTokens.space16),
       children: [
         const Text('北京时间（Asia/Shanghai）· 会议室即时预定，无需审批'),
         feedback,
@@ -311,7 +313,7 @@ class _MeetingState extends State<MeetingPage> with Guard<MeetingPage> {
     return Scaffold(
       appBar: AppBar(title: Text(editing ? '编辑会议' : '会议详情')),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(OaTokens.space16),
         children: [
           const Text('业务时间：北京时间（Asia/Shanghai）'),
           feedback,
@@ -320,35 +322,38 @@ class _MeetingState extends State<MeetingPage> with Guard<MeetingPage> {
             field(title, '会议标题', max: 200),
             field(start, '开始时间（YYYY-MM-DDTHH:mm）'),
             field(end, '结束时间（YYYY-MM-DDTHH:mm）'),
-            DropdownButtonFormField<int>(
-              initialValue: roomId,
-              decoration: const InputDecoration(labelText: '预定会议室'),
-              isExpanded: true,
-              items: [
-                const DropdownMenuItem<int>(
-                  value: null,
-                  child: Text('不订会议室（仅日程）'),
-                ),
-                for (final r in rooms)
-                  DropdownMenuItem(
-                    value: r['id'] as int,
-                    child: Text(
-                      '${r['name']} · ${r['location'] ?? '未填地点'} · ${r['capacity'] ?? '不限'}人',
-                      overflow: TextOverflow.ellipsis,
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: OaTokens.space8),
+              child: DropdownButtonFormField<int>(
+                initialValue: roomId,
+                decoration: const InputDecoration(labelText: '预定会议室'),
+                isExpanded: true,
+                items: [
+                  const DropdownMenuItem<int>(
+                    value: null,
+                    child: Text('不订会议室（仅日程）'),
+                  ),
+                  for (final r in rooms)
+                    DropdownMenuItem(
+                      value: r['id'] as int,
+                      child: Text(
+                        '${r['name']} · ${r['location'] ?? '未填地点'} · ${r['capacity'] ?? '不限'}人',
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                  ),
-                if (roomId != null && !rooms.any((r) => r['id'] == roomId))
-                  DropdownMenuItem(
-                    value: roomId,
-                    child: Text('${detail?['room_name']}（已停用，仅保留原预定）'),
-                  ),
-              ],
-              onChanged: busy
-                  ? null
-                  : (v) {
-                      setState(() => roomId = v);
-                      run(occupied);
-                    },
+                  if (roomId != null && !rooms.any((r) => r['id'] == roomId))
+                    DropdownMenuItem(
+                      value: roomId,
+                      child: Text('${detail?['room_name']}（已停用，仅保留原预定）'),
+                    ),
+                ],
+                onChanged: busy
+                    ? null
+                    : (v) {
+                        setState(() => roomId = v);
+                        run(occupied);
+                      },
+              ),
             ),
             OutlinedButton(
               onPressed: busy ? null : () => run(occupied),

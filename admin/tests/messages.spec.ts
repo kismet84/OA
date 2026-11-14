@@ -28,13 +28,13 @@ test('公告部门发布、多附件、回执与撤回；员工消息中心和�
   page.on('console',m=>{if(m.type()==='error') errors.push(m.text());});
   async function signIn(login:string,password:string) {
     await page.goto('/');
-    await page.getByLabel('工号 / 手机号').fill(login);
+    await page.getByLabel('工号或手机号').fill(login);
     await page.getByLabel('密码',{exact:true}).fill(password);
     await page.getByRole('button',{name:'登录管理后台',exact:true}).click();
     await expect(page.locator('nav')).toBeVisible();
   }
   async function signOut() {
-    await page.getByRole('button',{name:'退出',exact:true}).click();
+    await page.getByRole('button',{name:'退出登录',exact:true}).click();
     await expect(page.getByRole('heading',{name:'管理员登录',exact:true})).toBeVisible();
   }
   await signIn('admin',process.env.OA_ADMIN_PASSWORD || 'Admin@2026Verified');
@@ -59,7 +59,7 @@ test('公告部门发布、多附件、回执与撤回；员工消息中心和�
   await page.screenshot({path:'../.runtime/announce-admin.png',fullPage:true});
   await dialog.getByRole('button',{name:'关闭公告弹窗'}).click();
   // Submit via existing request UI with CC selection.
-  await page.locator('nav').getByRole('button',{name:'审批单据'}).click();
+  await page.locator('nav').getByRole('button',{name:'审批与申请'}).click();
   await page.getByRole('button',{name:'提交申请',exact:true}).click();
   await dialog.getByLabel('代提交员工').selectOption(String(employee.id));
   await dialog.getByLabel('申请类型',{exact:true}).selectOption('OUTING');

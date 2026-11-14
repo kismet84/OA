@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'theme.dart';
+
 import 'api.dart';
 import 'attendance.dart';
 import 'ui.dart';
@@ -73,7 +75,7 @@ class _WorkbenchState extends State<WorkbenchPage> with Guard<WorkbenchPage> {
     return Scaffold(
       appBar: AppBar(title: const Text('考勤与审批汇总')),
       body: ListView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(OaTokens.space20),
         children: [
           const Text('北京时间 · 默认当前自然月 · 含首尾最多366天'),
           TextField(
@@ -91,34 +93,45 @@ class _WorkbenchState extends State<WorkbenchPage> with Guard<WorkbenchPage> {
             ),
           ),
           if (d?['canViewTeam'] == true)
-            DropdownButtonFormField<String>(
-              initialValue: scope,
-              decoration: const InputDecoration(labelText: '统计范围'),
-              items: [
-                const DropdownMenuItem(value: 'self', child: Text('本人')),
-                DropdownMenuItem(
-                  value: 'team',
-                  child: Text(d?['canFilterDepartment'] == true ? '全公司' : '团队'),
-                ),
-              ],
-              onChanged: busy
-                  ? null
-                  : (v) => setState(() {
-                      scope = v!;
-                      department = '';
-                    }),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: OaTokens.space8),
+              child: DropdownButtonFormField<String>(
+                initialValue: scope,
+                decoration: const InputDecoration(labelText: '统计范围'),
+                items: [
+                  const DropdownMenuItem(value: 'self', child: Text('本人')),
+                  DropdownMenuItem(
+                    value: 'team',
+                    child: Text(
+                      d?['canFilterDepartment'] == true ? '全公司' : '团队',
+                    ),
+                  ),
+                ],
+                onChanged: busy
+                    ? null
+                    : (v) => setState(() {
+                        scope = v!;
+                        department = '';
+                      }),
+              ),
             ),
           if (d?['canFilterDepartment'] == true && scope == 'team')
-            DropdownButtonFormField<String>(
-              key: ValueKey(scope),
-              initialValue: department,
-              decoration: const InputDecoration(labelText: '统计部门（含下级）'),
-              items: [
-                const DropdownMenuItem(value: '', child: Text('全公司')),
-                for (final x in d!['departments'])
-                  DropdownMenuItem(value: '${x['id']}', child: Text(x['name'])),
-              ],
-              onChanged: busy ? null : (v) => setState(() => department = v!),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: OaTokens.space8),
+              child: DropdownButtonFormField<String>(
+                key: ValueKey(scope),
+                initialValue: department,
+                decoration: const InputDecoration(labelText: '统计部门（含下级）'),
+                items: [
+                  const DropdownMenuItem(value: '', child: Text('全公司')),
+                  for (final x in d!['departments'])
+                    DropdownMenuItem(
+                      value: '${x['id']}',
+                      child: Text(x['name']),
+                    ),
+                ],
+                onChanged: busy ? null : (v) => setState(() => department = v!),
+              ),
             ),
           FilledButton(
             onPressed: busy ? null : load,
@@ -147,7 +160,7 @@ class _WorkbenchState extends State<WorkbenchPage> with Guard<WorkbenchPage> {
             ),
             section('考勤简单统计'),
             Text('正常打卡次数 ${a['normalPunches']}'),
-            Text('出勤打卡次数 ${a['fieldPunches']}'),
+            Text('外勤打卡次数 ${a['fieldPunches']}'),
             Text('有打卡记录天数（人日） ${a['recordedDays']}'),
             Text('已批准补卡次数 ${a['approvedCorrections']}'),
             const Text('以下无记录为0天，仅计已批准且未撤销的区间内自然日与半天（含周末）。'),
@@ -166,7 +179,7 @@ class _WorkbenchState extends State<WorkbenchPage> with Guard<WorkbenchPage> {
                 title: Text('${member['name']}（${member['employee_no']}）'),
                 trailing: IconButton(
                   tooltip: '成员月度考勤',
-                  icon: const Icon(Icons.calendar_month),
+                  icon: const Icon(Icons.calendar_month_outlined),
                   onPressed: () => run(() async {
                     final me =
                         (await widget.api.call('/auth/me'))['user'] as Json;
@@ -279,7 +292,7 @@ class _WorkbenchPunchesState extends State<WorkbenchPunches>
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: Text('${widget.user['name']}的打卡记录')),
     body: ListView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(OaTokens.space20),
       children: [
         feedback,
         Text('${widget.from} 至 ${widget.to} · 北京时间 · 每页最多200条'),

@@ -2,6 +2,9 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+
+import 'theme.dart';
+
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -54,24 +57,27 @@ class _DocumentsState extends State<DocumentsPage> with Guard<DocumentsPage> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('文档资料')),
     body: ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(OaTokens.space16),
       children: [
         feedback,
-        DropdownButtonFormField<String>(
-          initialValue: category,
-          decoration: const InputDecoration(labelText: '文档分类'),
-          items: [
-            const DropdownMenuItem(value: '', child: Text('全部分类')),
-            for (final e in documentCategories.entries)
-              DropdownMenuItem(value: e.key, child: Text(e.value)),
-          ],
-          onChanged: busy
-              ? null
-              : (v) {
-                  category = v ?? '';
-                  offset = 0;
-                  load();
-                },
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: OaTokens.space8),
+          child: DropdownButtonFormField<String>(
+            initialValue: category,
+            decoration: const InputDecoration(labelText: '文档分类'),
+            items: [
+              const DropdownMenuItem(value: '', child: Text('全部分类')),
+              for (final e in documentCategories.entries)
+                DropdownMenuItem(value: e.key, child: Text(e.value)),
+            ],
+            onChanged: busy
+                ? null
+                : (v) {
+                    category = v ?? '';
+                    offset = 0;
+                    load();
+                  },
+          ),
         ),
         field(keyword, '标题关键字', max: 200),
         field(from, '发布起日（YYYY-MM-DD）'),
@@ -93,7 +99,7 @@ class _DocumentsState extends State<DocumentsPage> with Guard<DocumentsPage> {
               subtitle: Text(
                 '${documentCategories[r['category']]} · ${timeOf(r['published_at'])}',
               ),
-              trailing: const Icon(Icons.chevron_right),
+              trailing: const Icon(Icons.chevron_right_outlined),
               onTap: () => go(
                 context,
                 DocumentPage(api: widget.api, id: r['id'] as int),
@@ -189,7 +195,7 @@ class _DocumentState extends State<DocumentPage> with Guard<DocumentPage> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('文档详情')),
     body: ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(OaTokens.space16),
       children: [
         feedback,
         if (data != null) ...[
@@ -202,7 +208,7 @@ class _DocumentState extends State<DocumentPage> with Guard<DocumentPage> {
           for (final f in records(data!['attachments']))
             Card(
               child: Padding(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(OaTokens.space12),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [

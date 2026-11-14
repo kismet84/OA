@@ -346,7 +346,7 @@ onUnmounted(clearPreview);
 .actions {
   flex-wrap: wrap;
   align-items: end;
-  margin: 12px 0;
+  margin: var(--space-12) 0;
 }
 .actions label {
   flex: 1;
@@ -356,7 +356,7 @@ onUnmounted(clearPreview);
   overflow-wrap: anywhere;
 }
 .document-preview {
-  margin-top: 20px;
+  margin-top: var(--space-20);
 }
 .modal {
   max-width: 900px;

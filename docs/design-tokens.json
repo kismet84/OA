@@ -1,0 +1,297 @@
+{
+  "color": {
+    "primary": "#17635d",
+    "primaryHover": "#104e49",
+    "primaryPressed": "#0d423e",
+    "onPrimary": "#ffffff",
+    "primarySoft": "#e8f2ef",
+    "bg": "#f3f6f6",
+    "surface": "#ffffff",
+    "surfaceMuted": "#f0f4f3",
+    "border": "#d4dfdc",
+    "borderStrong": "#718581",
+    "text": "#233d3c",
+    "textSecondary": "#48635e",
+    "textMuted": "#586f69",
+    "link": "#17635d",
+    "focus": "#17635d",
+    "danger": "#a33232",
+    "dangerSoft": "#fbeae8",
+    "warning": "#795507",
+    "warningSoft": "#fff3db",
+    "success": "#276447",
+    "successSoft": "#e5f2ea",
+    "info": "#285e83",
+    "infoSoft": "#e8f1f8",
+    "sidebarBg": "#183e3c",
+    "sidebarText": "#d7e6e0",
+    "sidebarMuted": "#b9d0c8",
+    "sidebarActive": "#2e5d55",
+    "sidebarHover": "#28524c",
+    "overlay": "#102a2860",
+    "decoration": "#41716b"
+  },
+  "status": {
+    "pending": {
+      "fg": "#795507",
+      "bg": "#fff3db",
+      "border": "#795507",
+      "label": "待审批"
+    },
+    "approved": {
+      "fg": "#276447",
+      "bg": "#e5f2ea",
+      "border": "#276447",
+      "label": "已批准"
+    },
+    "rejected": {
+      "fg": "#a33232",
+      "bg": "#fbeae8",
+      "border": "#a33232",
+      "label": "已驳回"
+    },
+    "withdrawn": {
+      "fg": "#48635e",
+      "bg": "#f0f4f3",
+      "border": "#48635e",
+      "label": "已撤回"
+    },
+    "cancelled": {
+      "fg": "#48635e",
+      "bg": "#f0f4f3",
+      "border": "#48635e",
+      "label": "已撤销"
+    },
+    "paid": {
+      "fg": "#276447",
+      "bg": "#e5f2ea",
+      "border": "#276447",
+      "label": "已支付"
+    },
+    "unpaid": {
+      "fg": "#795507",
+      "bg": "#fff3db",
+      "border": "#795507",
+      "label": "待支付"
+    },
+    "ready": {
+      "fg": "#285e83",
+      "bg": "#e8f1f8",
+      "border": "#285e83",
+      "label": "待发放"
+    },
+    "issued": {
+      "fg": "#276447",
+      "bg": "#e5f2ea",
+      "border": "#276447",
+      "label": "已发放"
+    },
+    "in_use": {
+      "fg": "#285e83",
+      "bg": "#e8f1f8",
+      "border": "#285e83",
+      "label": "使用中"
+    },
+    "returned": {
+      "fg": "#48635e",
+      "bg": "#f0f4f3",
+      "border": "#48635e",
+      "label": "已归还"
+    },
+    "overdue": {
+      "fg": "#a33232",
+      "bg": "#fbeae8",
+      "border": "#a33232",
+      "label": "已逾期"
+    },
+    "todo": {
+      "fg": "#795507",
+      "bg": "#fff3db",
+      "border": "#795507",
+      "label": "待处理"
+    },
+    "in_progress": {
+      "fg": "#285e83",
+      "bg": "#e8f1f8",
+      "border": "#285e83",
+      "label": "进行中"
+    },
+    "completed": {
+      "fg": "#276447",
+      "bg": "#e5f2ea",
+      "border": "#276447",
+      "label": "已完成"
+    },
+    "draft": {
+      "fg": "#48635e",
+      "bg": "#f0f4f3",
+      "border": "#48635e",
+      "label": "草稿"
+    },
+    "to_archive": {
+      "fg": "#795507",
+      "bg": "#fff3db",
+      "border": "#795507",
+      "label": "待归档"
+    },
+    "active": {
+      "fg": "#276447",
+      "bg": "#e5f2ea",
+      "border": "#276447",
+      "label": "履行中"
+    },
+    "expired": {
+      "fg": "#a33232",
+      "bg": "#fbeae8",
+      "border": "#a33232",
+      "label": "已到期"
+    },
+    "terminated": {
+      "fg": "#48635e",
+      "bg": "#f0f4f3",
+      "border": "#48635e",
+      "label": "已终止"
+    },
+    "waiting": {
+      "fg": "#795507",
+      "bg": "#fff3db",
+      "border": "#795507",
+      "label": "待到访"
+    },
+    "arrived": {
+      "fg": "#276447",
+      "bg": "#e5f2ea",
+      "border": "#276447",
+      "label": "已到访"
+    },
+    "left": {
+      "fg": "#48635e",
+      "bg": "#f0f4f3",
+      "border": "#48635e",
+      "label": "已离开"
+    },
+    "available": {
+      "fg": "#276447",
+      "bg": "#e5f2ea",
+      "border": "#276447",
+      "label": "在库"
+    },
+    "assigned": {
+      "fg": "#285e83",
+      "bg": "#e8f1f8",
+      "border": "#285e83",
+      "label": "已领用"
+    },
+    "repair": {
+      "fg": "#795507",
+      "bg": "#fff3db",
+      "border": "#795507",
+      "label": "维修中"
+    },
+    "scrapped": {
+      "fg": "#48635e",
+      "bg": "#f0f4f3",
+      "border": "#48635e",
+      "label": "已报废"
+    }
+  },
+  "font": {
+    "webStack": "'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif",
+    "mobileStack": [
+      "sans-serif",
+      "PingFang SC",
+      "Microsoft YaHei"
+    ],
+    "size": {
+      "xs": 12,
+      "sm": 13,
+      "body": 14,
+      "lg": 16,
+      "title": 18,
+      "heading": 22,
+      "display": 28,
+      "hero": 48,
+      "metric": 36
+    },
+    "weight": {
+      "regular": 400,
+      "medium": 500,
+      "semibold": 600,
+      "bold": 700
+    },
+    "lineHeight": {
+      "body": 1.6,
+      "title": 1.4
+    },
+    "mobileFamily": "Roboto"
+  },
+  "space": {
+    "0": 0,
+    "4": 4,
+    "8": 8,
+    "12": 12,
+    "16": 16,
+    "20": 20,
+    "24": 24,
+    "28": 28,
+    "32": 32,
+    "36": 36,
+    "40": 40,
+    "44": 44,
+    "48": 48,
+    "52": 52,
+    "56": 56,
+    "60": 60,
+    "64": 64,
+    "68": 68,
+    "72": 72,
+    "76": 76,
+    "80": 80,
+    "84": 84,
+    "88": 88,
+    "92": 92,
+    "96": 96,
+    "100": 100
+  },
+  "radius": {
+    "sm": 4,
+    "md": 8,
+    "lg": 12,
+    "pill": 999
+  },
+  "shadow": {
+    "sm": {
+      "x": 0,
+      "y": 3,
+      "blur": 12,
+      "spread": 0,
+      "color": "#183e3c08"
+    },
+    "md": {
+      "x": 0,
+      "y": 20,
+      "blur": 60,
+      "spread": 0,
+      "color": "#183e3c20"
+    }
+  },
+  "control": {
+    "buttonHeight": 40,
+    "inputHeight": 44,
+    "mobileMin": 48
+  },
+  "terms": {
+    "field": "外勤",
+    "approvals": "审批与申请",
+    "request": "审批单",
+    "apply": "提交申请",
+    "logout": "退出登录",
+    "loginId": "工号或手机号",
+    "messages": "消息中心",
+    "notifications": "系统通知",
+    "announcements": "公告",
+    "assets": "资产领用",
+    "withdrawn": "已撤回",
+    "cancelled": "已撤销"
+  }
+}

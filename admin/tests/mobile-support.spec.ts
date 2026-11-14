@@ -14,7 +14,7 @@ test('管理员维护职务工作电话并查看和退出员工设备', async ({
   page.on('pageerror', error => errors.push(error.message));
   await page.goto('/');
   await expect(page).toHaveTitle(/OA/);
-  await page.getByLabel('工号 / 手机号').fill('admin');
+  await page.getByLabel('工号或手机号').fill('admin');
   await page.getByLabel('密码', { exact: true }).fill(process.env.OA_ADMIN_PASSWORD || 'Admin@2026Verified');
   await page.getByRole('button', { name: '登录管理后台' }).click();
   await page.locator('nav').getByRole('button', { name: '账号与角色' }).click();

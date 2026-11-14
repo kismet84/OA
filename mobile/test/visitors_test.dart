@@ -97,14 +97,20 @@ void main() {
     api.token = 'test';
     await t.pumpWidget(MaterialApp(home: VisitorsPage(api: api)));
     await t.pumpAndSettle();
-    await t.tap(find.text('张访客 · 待到访'));
+    final visitorTile = find.widgetWithText(ListTile, '张访客');
+    expect(
+      find.descendant(of: visitorTile, matching: find.text('待到访')),
+      findsOneWidget,
+    );
+    await t.tap(visitorTile);
     await t.pumpAndSettle();
     expect(find.text('访客码：001234'), findsOneWidget);
     await t.tap(find.text('取消预约'));
     await t.pump(const Duration(milliseconds: 300));
     await t.tap(find.widgetWithText(FilledButton, '确认'));
     await t.pumpAndSettle();
-    expect(find.text('张访客 · 已取消'), findsOneWidget);
+    expect(find.text('张访客'), findsOneWidget);
+    expect(find.text('已取消'), findsOneWidget);
     expect(find.text('取消预约'), findsNothing);
   });
 }

@@ -32,7 +32,7 @@ test('中文后台配置、代提加班和补卡、审批、余额及来源标�
     await page.goto('/');
     await expect(page).toHaveTitle(/OA/);
     expect(page.url()).toContain('127.0.0.1:5173');
-    await page.getByLabel('工号 / 手机号').fill('admin');
+    await page.getByLabel('工号或手机号').fill('admin');
     await page.getByLabel('密码', { exact: true }).fill(password);
     await page.getByRole('button', { name: '登录管理后台' }).click();
     await nav('审批分流');
@@ -40,7 +40,7 @@ test('中文后台配置、代提加班和补卡、审批、余额及来源标�
     await page.getByLabel('加班兑换调休比例').fill('1.25');
     await page.getByRole('button', { name: '保存分流配置' }).click();
     await expect.poll(async () => (await (await request.get('/api/attendance-policy', { headers })).json()).overtime_ratio).toBe(1.25);
-    await nav('审批单据');
+    await nav('审批与申请');
     await page.getByRole('button', { name: '提交申请', exact: true }).click();
     await dialog.getByLabel('代提交员工').selectOption(String(uid));
     await dialog.getByLabel('申请类型', { exact: true }).selectOption('OVERTIME');
@@ -66,7 +66,7 @@ test('中文后台配置、代提加班和补卡、审批、余额及来源标�
     await expect(page.getByRole('row').filter({ hasText: name })).toContainText('0.625');
     await nav('余额流水');
     await expect(page.getByRole('row').filter({ hasText: name })).toContainText('加班批准计入');
-    await nav('审批单据');
+    await nav('审批与申请');
     await page.getByRole('row').filter({ hasText: name }).getByRole('button', { name: '查看 / 审批' }).click();
     await expect(dialog.getByRole('button', { name: '撤销申请', exact: true })).toBeVisible();
     await dialog.getByRole('button', { name: '撤销申请', exact: true }).click();

@@ -1,17 +1,19 @@
 import 'package:flutter/material.dart';
 
+import 'theme.dart';
+
 import 'api.dart';
 import 'urge_button.dart';
 import 'ui.dart';
 
 const assetStates = {
-  'PENDING': '待审批',
-  'READY': '待发放',
-  'ISSUED': '已发放',
-  'IN_USE': '使用中',
-  'RETURNED': '已归还',
-  'REJECTED': '已驳回',
-  'WITHDRAWN': '已撤回',
+  'PENDING': OaTokens.statusPendingLabel,
+  'READY': OaTokens.statusReadyLabel,
+  'ISSUED': OaTokens.statusIssuedLabel,
+  'IN_USE': OaTokens.statusInUseLabel,
+  'RETURNED': OaTokens.statusReturnedLabel,
+  'REJECTED': OaTokens.statusRejectedLabel,
+  'WITHDRAWN': OaTokens.statusWithdrawnLabel,
 };
 
 class AssetsPage extends StatefulWidget {
@@ -56,7 +58,7 @@ class _AssetsState extends State<AssetsPage> with Guard<AssetsPage> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('资产领用')),
     body: ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(OaTokens.space16),
       children: [
         const Text('简单领用流程 · 北京时间 · 每页最多200条'),
         feedback,
@@ -95,8 +97,11 @@ class _AssetsState extends State<AssetsPage> with Guard<AssetsPage> {
               title: Text(
                 scope == 'holdings'
                     ? '${r['code']} · ${r['name']}'
-                    : '${r['category_name']} · ${r['quantity']} · ${assetStates[r['status']]}',
+                    : '${r['category_name']} · ${r['quantity']}',
               ),
+              leading: r['status'] == null
+                  ? null
+                  : StatusChip(r['status'], label: assetStates[r['status']]),
               subtitle: Text(
                 scope == 'holdings'
                     ? '${r['returned_at'] == null ? '当前在我名下' : '历史领用'} · ${timeOf(r['issued_at'])}'
@@ -205,28 +210,31 @@ class _AssetApplyState extends State<AssetApplyPage>
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('发起领用申请')),
     body: ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(OaTokens.space16),
       children: [
         feedback,
-        DropdownButtonFormField<String>(
-          initialValue: choice,
-          decoration: const InputDecoration(labelText: '可申请资产'),
-          isExpanded: true,
-          items: [
-            for (final c in catalog)
-              DropdownMenuItem(
-                value: '${c['kind']}:${c['id']}',
-                child: Text(
-                  '${c['name']} · 可用 ${c['available']} ${c['unit'] ?? '件'}',
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: OaTokens.space8),
+          child: DropdownButtonFormField<String>(
+            initialValue: choice,
+            decoration: const InputDecoration(labelText: '可申请资产'),
+            isExpanded: true,
+            items: [
+              for (final c in catalog)
+                DropdownMenuItem(
+                  value: '${c['kind']}:${c['id']}',
+                  child: Text(
+                    '${c['name']} · 可用 ${c['available']} ${c['unit'] ?? '件'}',
+                  ),
                 ),
-              ),
-          ],
-          onChanged: busy
-              ? null
-              : (v) => setState(() {
-                  choice = v;
-                  needsReturn = selected?['kind'] == 'ITEM';
-                }),
+            ],
+            onChanged: busy
+                ? null
+                : (v) => setState(() {
+                    choice = v;
+                    needsReturn = selected?['kind'] == 'ITEM';
+                  }),
+          ),
         ),
         field(quantity, '数量', keyboard: TextInputType.number),
         field(purpose, '用途', lines: 3, max: 2000),
@@ -296,7 +304,7 @@ class _AssetDetailState extends State<AssetDetailPage>
     return Scaffold(
       appBar: AppBar(title: const Text('资产领用详情')),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(OaTokens.space16),
         children: [
           feedback,
           if (d != null) ...[
@@ -307,7 +315,8 @@ class _AssetDetailState extends State<AssetDetailPage>
               onDone: fetch,
             ),
             Text('${d['category_name']} · ${d['user_name']}'),
-            Text('状态：${assetStates[d['status']]} · 数量：${d['quantity']}'),
+            Text('数量：${d['quantity']}'),
+            StatusChip(d['status'], label: assetStates[d['status']]),
             Text('用途：${d['purpose']}'),
             Text('期望领用：${d['expected_date']}'),
             Text(

@@ -21,7 +21,7 @@ async function fixture(request: APIRequestContext) {
 }
 async function login(page:Page,account:string,password:string){
   await page.goto('/staff/'); await expect(page).toHaveTitle('公司 OA · 员工办公');
-  await page.getByLabel('工号 / 手机号').fill(account);await page.getByLabel('密码',{exact:true}).fill(password);
+  await page.getByLabel('工号或手机号').fill(account);await page.getByLabel('密码',{exact:true}).fill(password);
   await page.getByRole('button',{name:'登录员工办公',exact:true}).click();
 }
 const nav = (page:Page,label:string) => page.getByRole('navigation',{name:'员工功能'}).getByRole('button',{name:label,exact:true}).click();

@@ -66,7 +66,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(home: WorkbenchPage(api: api)));
     await tester.pumpAndSettle();
     expect(find.text('正常打卡次数 251'), findsOneWidget);
-    expect(find.text('出勤打卡次数 0'), findsOneWidget);
+    expect(find.text('外勤打卡次数 0'), findsOneWidget);
     expect(find.textContaining('平均审批耗时 48 小时'), findsOneWidget);
     expect(find.byType(DropdownButtonFormField<String>), findsNothing);
     await tester.enterText(find.widgetWithText(TextField, '汇总开始日期'), 'bad');

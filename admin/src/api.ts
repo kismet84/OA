@@ -1,3 +1,4 @@
+import visualTokens from '../../docs/design-tokens.json';
 import {prepareAttachment, uploadStatus} from './upload';
 export interface Actor {
   id: number;
@@ -103,7 +104,7 @@ export const labels: Record<string, string> = {
   OUTING: '外出',
   EXPENSE: '报销',
   NORMAL: '正常打卡',
-  FIELD: '出勤',
+  FIELD: '外勤',
   PENDING: '待审批',
   APPROVED: '已批准',
   REJECTED: '已驳回',
@@ -135,7 +136,8 @@ export function display(v: unknown): string {
   if (typeof v === 'boolean') return v ? '是' : '否';
   const s = String(v);
   if (/^\d{4}-\d{2}-\d{2}T/.test(s)) { const d=new Date(s); return Number.isNaN(d.getTime())?s:s.match(/Z$|[+-]\d\d:\d\d$/)?d.toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false}):s.slice(0,19).replace('T',' '); }
-  return labels[s] || s;
+  const status = visualTokens.status[s.toLowerCase() as keyof typeof visualTokens.status];
+  return status?.label || labels[s] || s;
 }
 
 export async function binary(path: string): Promise<Blob> {

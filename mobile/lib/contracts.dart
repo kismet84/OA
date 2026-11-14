@@ -1,6 +1,9 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+
+import 'theme.dart';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
@@ -10,14 +13,14 @@ import 'urge_button.dart';
 import 'ui.dart';
 
 const contractStates = {
-  'DRAFT': '草稿',
-  'PENDING': '审批中',
-  'REJECTED': '已驳回',
-  'WITHDRAWN': '已撤回',
-  'TO_ARCHIVE': '待归档',
-  'ACTIVE': '履行中',
-  'EXPIRED': '已到期',
-  'TERMINATED': '已终止',
+  'DRAFT': OaTokens.statusDraftLabel,
+  'PENDING': OaTokens.statusPendingLabel,
+  'REJECTED': OaTokens.statusRejectedLabel,
+  'WITHDRAWN': OaTokens.statusWithdrawnLabel,
+  'TO_ARCHIVE': OaTokens.statusToArchiveLabel,
+  'ACTIVE': OaTokens.statusActiveLabel,
+  'EXPIRED': OaTokens.statusExpiredLabel,
+  'TERMINATED': OaTokens.statusTerminatedLabel,
 };
 const contractTypes = {
   'PURCHASE': '采购',
@@ -123,57 +126,66 @@ class _ContractsState extends State<ContractsPage> with Guard<ContractsPage> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('合同管理')),
     body: ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(OaTokens.space16),
       children: [
         feedback,
         FilledButton(
           onPressed: busy ? null : () => open(),
           child: const Text('登记合同'),
         ),
-        DropdownButtonFormField<String>(
-          initialValue: scope,
-          decoration: const InputDecoration(labelText: '合同范围'),
-          items: [
-            for (final e in {
-              'mine': '我的合同',
-              'visible': '可见合同',
-              'pending': '合同待办',
-            }.entries)
-              DropdownMenuItem(value: e.key, child: Text(e.value)),
-          ],
-          onChanged: (v) {
-            scope = v!;
-            offset = 0;
-            run(fetch);
-          },
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: OaTokens.space8),
+          child: DropdownButtonFormField<String>(
+            initialValue: scope,
+            decoration: const InputDecoration(labelText: '合同范围'),
+            items: [
+              for (final e in {
+                'mine': '我的合同',
+                'visible': '可见合同',
+                'pending': '合同待办',
+              }.entries)
+                DropdownMenuItem(value: e.key, child: Text(e.value)),
+            ],
+            onChanged: (v) {
+              scope = v!;
+              offset = 0;
+              run(fetch);
+            },
+          ),
         ),
-        DropdownButtonFormField<String>(
-          initialValue: status,
-          decoration: const InputDecoration(labelText: '合同状态'),
-          items: [
-            const DropdownMenuItem(value: '', child: Text('全部状态')),
-            for (final e in contractStates.entries)
-              DropdownMenuItem(value: e.key, child: Text(e.value)),
-          ],
-          onChanged: (v) {
-            status = v!;
-            offset = 0;
-            run(fetch);
-          },
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: OaTokens.space8),
+          child: DropdownButtonFormField<String>(
+            initialValue: status,
+            decoration: const InputDecoration(labelText: '合同状态'),
+            items: [
+              const DropdownMenuItem(value: '', child: Text('全部状态')),
+              for (final e in contractStates.entries)
+                DropdownMenuItem(value: e.key, child: Text(e.value)),
+            ],
+            onChanged: (v) {
+              status = v!;
+              offset = 0;
+              run(fetch);
+            },
+          ),
         ),
-        DropdownButtonFormField<String>(
-          initialValue: type,
-          decoration: const InputDecoration(labelText: '合同类型'),
-          items: [
-            const DropdownMenuItem(value: '', child: Text('全部类型')),
-            for (final e in contractTypes.entries)
-              DropdownMenuItem(value: e.key, child: Text(e.value)),
-          ],
-          onChanged: (v) {
-            type = v!;
-            offset = 0;
-            run(fetch);
-          },
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: OaTokens.space8),
+          child: DropdownButtonFormField<String>(
+            initialValue: type,
+            decoration: const InputDecoration(labelText: '合同类型'),
+            items: [
+              const DropdownMenuItem(value: '', child: Text('全部类型')),
+              for (final e in contractTypes.entries)
+                DropdownMenuItem(value: e.key, child: Text(e.value)),
+            ],
+            onChanged: (v) {
+              type = v!;
+              offset = 0;
+              run(fetch);
+            },
+          ),
         ),
         ExpansionTile(
           title: const Text('更多筛选'),
@@ -198,8 +210,11 @@ class _ContractsState extends State<ContractsPage> with Guard<ContractsPage> {
           Card(
             child: ListTile(
               title: Text('${r['code']} · ${r['name']}'),
+              leading: r['status'] == null
+                  ? null
+                  : StatusChip(r['status'], label: contractStates[r['status']]),
               subtitle: Text(
-                '${contractStates[r['status']]} · ${r['counterparty']} · 到期：${r['expiry_date'] ?? '长期'}',
+                '${r['counterparty']} · 到期：${r['expiry_date'] ?? '长期'}',
               ),
               onTap: () => open(r['id'] as int),
             ),
@@ -303,7 +318,7 @@ class _ContractEditState extends State<ContractEditPage>
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('合同登记')),
     body: ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(OaTokens.space16),
       children: [
         const Text('经办人为本人，部门随经办人登记。提交后锁定字段，驳回或撤回可修改。'),
         feedback,
@@ -320,14 +335,17 @@ class _ContractEditState extends State<ContractEditPage>
                 : 200,
             lines: ['performance', 'note'].contains(e.key) ? 3 : 1,
           ),
-        DropdownButtonFormField<String>(
-          initialValue: type,
-          decoration: const InputDecoration(labelText: '合同类型'),
-          items: [
-            for (final e in contractTypes.entries)
-              DropdownMenuItem(value: e.key, child: Text(e.value)),
-          ],
-          onChanged: (v) => type = v!,
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: OaTokens.space8),
+          child: DropdownButtonFormField<String>(
+            initialValue: type,
+            decoration: const InputDecoration(labelText: '合同类型'),
+            items: [
+              for (final e in contractTypes.entries)
+                DropdownMenuItem(value: e.key, child: Text(e.value)),
+            ],
+            onChanged: (v) => type = v!,
+          ),
         ),
         TextButton(
           onPressed: busy
@@ -342,7 +360,7 @@ class _ContractEditState extends State<ContractEditPage>
           ListTile(
             title: Text('${f['name']}'),
             trailing: IconButton(
-              icon: const Icon(Icons.close),
+              icon: const Icon(Icons.close_outlined),
               onPressed: busy ? null : () => setState(() => files.remove(f)),
             ),
           ),
@@ -420,10 +438,12 @@ class _ContractDetailState extends State<ContractDetailPage>
     return Scaffold(
       appBar: AppBar(title: const Text('合同详情')),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(OaTokens.space16),
         children: [
           feedback,
           if (d != null) ...[
+            StatusChip(d['status'], label: contractStates[d['status']]),
+
             UrgeButton(
               api: widget.api,
               detail: d,
@@ -431,9 +451,7 @@ class _ContractDetailState extends State<ContractDetailPage>
               onDone: fetch,
             ),
             section('${d['code']} · ${d['name']}'),
-            Text(
-              '${contractStates[d['status']]} · ${contractTypes[d['type']]}',
-            ),
+            Text('${contractTypes[d['type']]}'),
             Text('经办人：${d['user_name']} · 部门：${d['department_name']}'),
             Text(
               '对方单位：${d['counterparty']}\n联系人：${d['contact'] ?? '无'} · 电话：${d['phone'] ?? '无'}\n金额：${d['amount'] ?? '无固定金额'}\n签订：${d['signed_date']} · 生效：${d['effective_date']}\n到期：${d['expiry_date'] ?? '长期'}\n付款或履约说明：${d['performance'] ?? '无'}\n备注：${d['note'] ?? '无'}',
@@ -551,7 +569,7 @@ class _ContractDetailState extends State<ContractDetailPage>
                 ListTile(
                   title: Text('${f['name']}'),
                   trailing: IconButton(
-                    icon: const Icon(Icons.close),
+                    icon: const Icon(Icons.close_outlined),
                     onPressed: busy
                         ? null
                         : () => setState(() => sealed.remove(f)),

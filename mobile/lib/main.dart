@@ -2,6 +2,9 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+
+import 'theme.dart';
+
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -148,13 +151,7 @@ class _EmployeeAppState extends State<EmployeeApp> {
     locale: const Locale('zh', 'CN'),
     supportedLocales: const [Locale('zh', 'CN')],
     localizationsDelegates: GlobalMaterialLocalizations.delegates,
-    theme: ThemeData(
-      useMaterial3: true,
-      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff176b64)),
-      scaffoldBackgroundColor: const Color(0xfff5f7f9),
-      appBarTheme: const AppBarTheme(centerTitle: false),
-      cardTheme: const CardThemeData(margin: EdgeInsets.symmetric(vertical: 6)),
-    ),
+    theme: oaTheme(),
     home: loading
         ? const Scaffold(body: Center(child: CircularProgressIndicator()))
         : user == null
@@ -228,12 +225,12 @@ class _LoginState extends State<LoginPage> with Guard<LoginPage> {
     appBar: AppBar(title: const Text('员工办公')),
     body: SafeArea(
       child: ListView(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(OaTokens.space24),
         children: [
           const Icon(
             Icons.business_outlined,
             size: 64,
-            color: Color(0xff176b64),
+            color: OaTokens.primary,
           ),
           section('欢迎使用员工办公'),
           const Text('使用工号或手机号登录，处理工作中的日常事务。'),
@@ -313,7 +310,7 @@ class _PasswordState extends State<PasswordPage> with Guard<PasswordPage> {
         automaticallyImplyLeading: !widget.forced,
       ),
       body: ListView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(OaTokens.space20),
         children: [
           const Text('新密码至少10位，最多72个 UTF-8 字节。修改后所有设备须重新登录。'),
           field(old, '原密码', secret: true),

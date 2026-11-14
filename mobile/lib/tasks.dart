@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 
+import 'theme.dart';
+
 import 'api.dart';
 import 'ui.dart';
 
 const taskStates = {
-  'TODO': '待处理',
-  'IN_PROGRESS': '进行中',
-  'COMPLETED': '已完成',
+  'TODO': OaTokens.statusTodoLabel,
+  'IN_PROGRESS': OaTokens.statusInProgressLabel,
+  'COMPLETED': OaTokens.statusCompletedLabel,
   'CANCELLED': '已取消',
 };
 
@@ -62,47 +64,56 @@ class _TasksState extends State<TasksPage> with Guard<TasksPage> {
   }
 
   Widget personFilter(String label, int? value, ValueChanged<int?> change) =>
-      DropdownButtonFormField<int>(
-        initialValue: value,
-        decoration: InputDecoration(labelText: label),
-        isExpanded: true,
-        items: [
-          const DropdownMenuItem<int>(value: null, child: Text('全部')),
-          for (final p in people)
-            DropdownMenuItem(
-              value: p['id'] as int,
-              child: Text('${p['name']}'),
-            ),
-        ],
-        onChanged: busy ? null : change,
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: OaTokens.space8),
+        child: DropdownButtonFormField<int>(
+          initialValue: value,
+          decoration: InputDecoration(labelText: label),
+          isExpanded: true,
+          items: [
+            const DropdownMenuItem<int>(value: null, child: Text('全部')),
+            for (final p in people)
+              DropdownMenuItem(
+                value: p['id'] as int,
+                child: Text('${p['name']}'),
+              ),
+          ],
+          onChanged: busy ? null : change,
+        ),
       );
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('待办任务')),
     body: ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(OaTokens.space16),
       children: [
         const Text('任务指派与跟进，无需审批。截止日期按北京时间，仅作提醒。'),
         feedback,
-        DropdownButtonFormField<String>(
-          initialValue: scope,
-          decoration: const InputDecoration(labelText: '任务范围'),
-          items: const [
-            DropdownMenuItem(value: 'assigned', child: Text('我负责的')),
-            DropdownMenuItem(value: 'initiated', child: Text('我发起的（未取消）')),
-            DropdownMenuItem(value: '', child: Text('我有权查看的任务')),
-          ],
-          onChanged: busy ? null : (v) => setState(() => scope = v!),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: OaTokens.space8),
+          child: DropdownButtonFormField<String>(
+            initialValue: scope,
+            decoration: const InputDecoration(labelText: '任务范围'),
+            items: const [
+              DropdownMenuItem(value: 'assigned', child: Text('我负责的')),
+              DropdownMenuItem(value: 'initiated', child: Text('我发起的（未取消）')),
+              DropdownMenuItem(value: '', child: Text('我有权查看的任务')),
+            ],
+            onChanged: busy ? null : (v) => setState(() => scope = v!),
+          ),
         ),
-        DropdownButtonFormField<String>(
-          initialValue: status,
-          decoration: const InputDecoration(labelText: '任务状态'),
-          items: [
-            const DropdownMenuItem(value: '', child: Text('全部状态')),
-            for (final s in taskStates.entries)
-              DropdownMenuItem(value: s.key, child: Text(s.value)),
-          ],
-          onChanged: busy ? null : (v) => setState(() => status = v!),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: OaTokens.space8),
+          child: DropdownButtonFormField<String>(
+            initialValue: status,
+            decoration: const InputDecoration(labelText: '任务状态'),
+            items: [
+              const DropdownMenuItem(value: '', child: Text('全部状态')),
+              for (final s in taskStates.entries)
+                DropdownMenuItem(value: s.key, child: Text(s.value)),
+            ],
+            onChanged: busy ? null : (v) => setState(() => status = v!),
+          ),
         ),
         field(from, '截止起日（YYYY-MM-DD）'),
         field(to, '截止止日（YYYY-MM-DD）'),
@@ -125,8 +136,11 @@ class _TasksState extends State<TasksPage> with Guard<TasksPage> {
           Card(
             child: ListTile(
               title: Text('${r['title']}'),
+              leading: r['status'] == null
+                  ? null
+                  : StatusChip(r['status'], label: taskStates[r['status']]),
               subtitle: Text(
-                '${taskStates[r['status']]} · ${r['creator_name']}\n截止：${timeOf(r['due_at'])}${r['overdue'] == true ? '（已过期）' : ''}',
+                '${r['creator_name']}\n截止：${timeOf(r['due_at'])}${r['overdue'] == true ? '（已过期）' : ''}',
               ),
               onTap: () => open(r['id'] as int),
             ),
@@ -281,7 +295,7 @@ class _TaskState extends State<TaskPage> with Guard<TaskPage> {
     return Scaffold(
       appBar: AppBar(title: Text(editing ? '编辑任务' : '任务详情')),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(OaTokens.space16),
         children: [
           const Text('业务时间：北京时间（Asia/Shanghai）'),
           feedback,
@@ -321,7 +335,8 @@ class _TaskState extends State<TaskPage> with Guard<TaskPage> {
               '${d['title']}',
               style: Theme.of(context).textTheme.headlineSmall,
             ),
-            Text('状态：${taskStates[d['status']]} · 发起人：${d['creator_name']}'),
+            StatusChip(d['status'], label: taskStates[d['status']]),
+            Text('发起人：${d['creator_name']}'),
             Text(
               '截止：${timeOf(d['due_at'])}${d['overdue'] == true ? '（已过期）' : ''}',
             ),

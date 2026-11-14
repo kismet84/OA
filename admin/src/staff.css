@@ -1,12 +1,12 @@
 .staff-request { max-width: 880px; }
 .staff-fields { border: 0; margin: 0; padding: 0; min-width: 0; }
-.staff-fields > .primary { margin-top: 22px; }
-.staff-line { display: grid; grid-template-columns: 2fr 1fr auto; gap: 12px; align-items: end; margin-bottom: 16px; }
-.staff-device { border-top: 1px solid #e0e8e5; padding-top: 18px; margin-top: 18px; }
+.staff-fields > .primary { margin-top: var(--space-24); }
+.staff-line { display: grid; grid-template-columns: 2fr 1fr auto; gap: var(--space-12); align-items: end; margin-bottom: var(--space-16); }
+.staff-device { border-top: 1px solid var(--border); padding-top: var(--space-16); margin-top: var(--space-16); }
 .staff-app .actions { flex-wrap: wrap; }
 .staff-app .announcement-body { white-space: pre-wrap; }
 @media (max-width: 760px) {
-  .staff-app .login-intro h1 { display: block; margin: 10px 0 0; }
+  .staff-app .login-intro h1 { display: block; margin: var(--space-8) 0 0; }
   .staff-app header { flex-wrap: wrap; }
   .staff-app .user-bar { max-width: none; }
   .staff-app .user-bar span { width: auto; }
@@ -17,4 +17,20 @@
 @media (max-width: 760px) {
   .staff-app .sidebar nav { flex-wrap: wrap; overflow: visible; }
   .staff-app .sidebar nav button { flex: 1 0 auto; }
+}
+
+@media (max-width: 760px) {
+  .staff-app button, .staff-app input:not([type='checkbox']):not([type='radio']),
+  .staff-app select { min-height: var(--control-mobile-min); }
+  .staff-app .sidebar nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); }
+  .staff-app .sidebar nav button { justify-content: center; padding: var(--space-8) var(--space-4); white-space: normal; text-align: center; }
+  .staff-app .filters label { max-width: none; min-width: min(100%, 132px); }
+  .staff-app .form-grid { grid-template-columns: 1fr; }
+  .staff-app .actions { gap: var(--space-8); }
+  .staff-app .login-panel form { max-width: 100%; }
+  .staff-app .empty { padding: var(--space-32) var(--space-16); }
+}
+
+@media (max-width: 760px) {
+  .staff-app .stats { grid-template-columns: 1fr; }
 }
