@@ -28,7 +28,12 @@ class ApiErrors {
 
   @ExceptionHandler(MethodArgumentNotValidException.class)
   ResponseEntity<?> validation(MethodArgumentNotValidException e) {
-    return ResponseEntity.badRequest().body(Map.of("message", "输入无效，请检查必填项、文本长度、格式和数值范围"));
+    String message = e.getBindingResult().getFieldErrors().stream()
+        .map(error -> error.getDefaultMessage())
+        .filter(value -> PunchService.UPGRADE_MESSAGE.equals(value)
+            || "定位精度须大于0且不超过200米".equals(value))
+        .findFirst().orElse("输入无效，请检查必填项、文本长度、格式和数值范围");
+    return ResponseEntity.badRequest().body(Map.of("message", message));
   }
 
   @ExceptionHandler(DataIntegrityViolationException.class)

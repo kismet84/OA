@@ -8,8 +8,7 @@ import 'api.dart';
 
 const _timeoutMessage = '定位超时，请到信号较好的地方重试';
 const _liveTimeout = Duration(seconds: 45);
-const _freshLastKnownAge = Duration(minutes: 30);
-const _staleLastKnownAge = Duration(hours: 24);
+const _maxLocationAge = Duration(minutes: 5);
 const _liveAccuracy = LocationAccuracy.high;
 
 StreamSubscription<Position>? _warmupSub;
@@ -118,7 +117,7 @@ bool _isTimeout(Object error) =>
 
 bool _isUsable(Position position, {required Duration maxAge}) {
   final age = DateTime.now().difference(position.timestamp);
-  return !age.isNegative &&
+  return age >= const Duration(minutes: -2) &&
       age <= maxAge &&
       position.accuracy.isFinite &&
       position.accuracy > 0 &&
@@ -146,7 +145,7 @@ void startPunchLocationWarmup() {
           Geolocator.getPositionStream(locationSettings: _locationSettings())
               .listen(
                 (position) {
-                  if (_isUsable(position, maxAge: _freshLastKnownAge)) {
+                  if (_isUsable(position, maxAge: _maxLocationAge)) {
                     _warmedPosition = position;
                   }
                 },
@@ -186,7 +185,7 @@ void resetPunchLocationWarmupForTest() {
 })?
 _readWarmupLocation() {
   final warmed = _warmedPosition;
-  if (warmed != null && _isUsable(warmed, maxAge: _freshLastKnownAge)) {
+  if (warmed != null && _isUsable(warmed, maxAge: _maxLocationAge)) {
     return (
       position: warmed,
       usedLastKnown: false,
@@ -223,7 +222,7 @@ Future<Position?> _tryLiveChannel(
   final watch = Stopwatch()..start();
   try {
     final position = await task.position.timeout(_liveTimeout);
-    if (_isUsable(position, maxAge: _freshLastKnownAge)) {
+    if (_isUsable(position, maxAge: _maxLocationAge)) {
       _logPunchLocation(
         channel: channel,
         watch: watch,
@@ -381,17 +380,12 @@ getPunchLocation({bool allowStaleLastKnown = true}) async {
       debugPrint('读取最近定位失败：$error');
     }
     ensureActive();
-    if (cached != null &&
-        (_isUsable(cached, maxAge: _freshLastKnownAge) ||
-            (allowStaleLastKnown &&
-                _isUsable(cached, maxAge: _staleLastKnownAge)))) {
+    if (cached != null && _isUsable(cached, maxAge: _maxLocationAge)) {
       return (
         position: cached,
         usedLastKnown: true,
         locatedAt: cached.timestamp.toUtc(),
-        locationSource: _isUsable(cached, maxAge: _freshLastKnownAge)
-            ? 'LAST_KNOWN'
-            : 'STALE_FALLBACK',
+        locationSource: 'LAST_KNOWN',
       );
     }
     warmed = _readWarmupLocation();

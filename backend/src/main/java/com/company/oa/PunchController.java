@@ -13,6 +13,10 @@ import org.springframework.web.bind.annotation.*;
 
 @Service
 class PunchService {
+  static final String MAX_ACCURACY_METERS = "200";
+  static final Duration MAX_LOCATION_AGE = Duration.ofMinutes(5);
+  static final Duration FUTURE_TOLERANCE = Duration.ofMinutes(2);
+  static final String UPGRADE_MESSAGE = "定位来源或采集时间缺失或不支持，请升级 App 或改用员工网页";
   final JdbcTemplate db;
   final Clock clock;
   final Auth auth;
@@ -27,10 +31,11 @@ class PunchService {
       @NotNull @Pattern(regexp = "NORMAL|FIELD") String kind,
       @NotNull @DecimalMin("-90") @DecimalMax("90") Double latitude,
       @NotNull @DecimalMin("-180") @DecimalMax("180") Double longitude,
-      @NotNull @DecimalMin(value = "0", inclusive = false) @DecimalMax("100000") Double accuracy,
+      @NotNull @DecimalMin(value = "0", inclusive = false) @DecimalMax(value = MAX_ACCURACY_METERS, message = "定位精度须大于0且不超过200米") Double accuracy,
       @Size(max = 200) String ssid,
-      OffsetDateTime locatedAt,
-      @Pattern(regexp = "LIVE|WARMUP_CACHE|LAST_KNOWN|STALE_FALLBACK|UNKNOWN")
+      @NotNull(message = UPGRADE_MESSAGE) OffsetDateTime locatedAt,
+      @NotNull(message = UPGRADE_MESSAGE)
+      @Pattern(regexp = "LIVE|WARMUP_CACHE|LAST_KNOWN|STALE_FALLBACK", message = UPGRADE_MESSAGE)
           String locationSource) {
     Punch(String kind, Double latitude, Double longitude, Double accuracy, String ssid) {
       this(kind, latitude, longitude, accuracy, ssid, null, null);
@@ -55,21 +60,15 @@ class PunchService {
             && Double.isFinite(input.longitude())
             && Double.isFinite(input.accuracy()),
         "必须成功获取有效定位");
-    String source = input.locationSource() == null ? "UNKNOWN" : input.locationSource();
-    ApiException.require(
-        Set.of("LIVE", "WARMUP_CACHE", "LAST_KNOWN", "STALE_FALLBACK", "UNKNOWN").contains(source),
-        "定位来源无效");
-    ApiException.require(source.equals("UNKNOWN") || input.locatedAt() != null, "请提供定位采集时间");
-    ApiException.require(
-        !source.equals("STALE_FALLBACK") || input.kind().equals("NORMAL"), "外出打卡不允许使用超时旧缓存");
-    if (input.locatedAt() != null) {
-      var age = Duration.between(input.locatedAt().toInstant(), clock.instant());
-      ApiException.require(
-          age.compareTo(Duration.ofMinutes(-2)) >= 0 && age.compareTo(Duration.ofHours(24)) <= 0,
-          "定位采集时间无效或超过24小时");
-      if (Set.of("WARMUP_CACHE", "LAST_KNOWN").contains(source))
-        ApiException.require(age.compareTo(Duration.ofMinutes(30)) <= 0, "缓存定位超过30分钟");
-    }
+    String source = input.locationSource();
+    ApiException.require(source != null && Set.of("LIVE", "WARMUP_CACHE", "LAST_KNOWN", "STALE_FALLBACK").contains(source)
+        && input.locatedAt() != null, UPGRADE_MESSAGE);
+    ApiException.require(input.accuracy() > 0 && input.accuracy() <= Double.parseDouble(MAX_ACCURACY_METERS),
+        "定位精度须大于0且不超过200米");
+    var age = Duration.between(input.locatedAt().toInstant(), clock.instant());
+    ApiException.require(age.compareTo(FUTURE_TOLERANCE.negated()) >= 0 && age.compareTo(MAX_LOCATION_AGE) <= 0,
+        "定位采集时间须在5分钟内，且不得超过未来2分钟，请重新定位");
+    ApiException.require(!source.equals("STALE_FALLBACK") || input.kind().equals("NORMAL"), "外出打卡不允许使用超时旧缓存");
     LocalDateTime now = simulatedAt==null?LocalDateTime.now(clock):simulatedAt;
     if (input.kind().equals("NORMAL")) {
       ApiException.require(

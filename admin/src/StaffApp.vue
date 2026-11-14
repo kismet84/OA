@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { validatePunchLocation } from './punchValidation';
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { api, display, setToken, type Actor, type Row } from './api';
 import AttendanceMonthly from './AttendanceMonthly.vue';
@@ -94,9 +95,11 @@ async function browserPunch(kind:string){
  punchBusy.value=true;punchMessage.value='正在获取现场实时定位…';
  try{
  const pos=await new Promise<GeolocationPosition>((resolve,reject)=>navigator.geolocation.getCurrentPosition(resolve,reject,{enableHighAccuracy:true,maximumAge:0,timeout:45000}));
+ validatePunchLocation(pos.coords.accuracy,pos.timestamp);
  const locatedAt=new Date(pos.timestamp).toISOString();
  punchMessage.value='现场实时 · 采集时间 '+display(locatedAt)+'（北京时间）';
  if(!window.confirm(punchMessage.value+'，确认打卡？'))return;
+ validatePunchLocation(pos.coords.accuracy,pos.timestamp);
  await api('/punches','POST',{kind,latitude:pos.coords.latitude,longitude:pos.coords.longitude,accuracy:pos.coords.accuracy,locatedAt,locationSource:'LIVE'});
  await load();punchMessage.value='打卡成功 · '+punchMessage.value;
  }catch(e){

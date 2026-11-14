@@ -266,7 +266,7 @@ void main() {
     expect(location.currentSettings.last, isA<AndroidSettings>());
   });
 
-  test('Dart 和平台定位超时均可回退到 30 分钟内且精度有效的定位', () async {
+  test('Dart 和平台定位超时均可回退到 5 分钟内且精度有效的定位', () async {
     for (final error in [
       TimeoutException('test'),
       PlatformException(code: 'TIMEOUT'),
@@ -275,7 +275,7 @@ void main() {
       location.locationManagerError = error;
       location.cached = position(
         accuracy: 200,
-        age: const Duration(minutes: 29),
+        age: const Duration(minutes: 4),
       );
       final result = await getPunchLocation(allowStaleLastKnown: false);
       expect(result.position, location.cached);
@@ -283,20 +283,22 @@ void main() {
     }
   });
 
-  test('正常打卡允许使用 24 小时内的最近定位；出勤则仍超时', () async {
+  test('正常与出勤均拒绝超过5分钟的旧缓存', () async {
     location.error = TimeoutException('test');
     location.locationManagerError = TimeoutException('test');
-    location.cached = position(age: const Duration(hours: 13, minutes: 30));
-    final normal = await getPunchLocation();
-    expect(normal.position, location.cached);
-    expect(normal.usedLastKnown, true);
-    expect(normal.locationSource, 'STALE_FALLBACK');
-    await expectLater(
-      getPunchLocation(allowStaleLastKnown: false),
-      throwsA(
-        isA<ApiError>().having((e) => e.message, 'message', '定位超时，请到信号较好的地方重试'),
-      ),
-    );
+    for (final age in [
+      const Duration(minutes: 5, seconds: 1),
+      const Duration(minutes: 29),
+      const Duration(hours: 23),
+    ]) {
+      location.cached = position(age: age);
+      for (final allow in [true, false]) {
+        await expectLater(
+          getPunchLocation(allowStaleLastKnown: allow),
+          throwsA(isA<ApiError>()),
+        );
+      }
+    }
   });
 
   test('无缓存、超过一天、未来时间、无效精度及坐标均显示明确超时文案', () async {
@@ -305,7 +307,7 @@ void main() {
     for (final cached in [
       null,
       position(age: const Duration(hours: 24, minutes: 1)),
-      position(age: const Duration(minutes: -1)),
+      position(age: const Duration(minutes: -3)),
       position(accuracy: 201),
       position(accuracy: 0),
       position(accuracy: double.nan),
@@ -375,7 +377,7 @@ void main() {
   test('已有预热缓存时仍先尝试实时定位，成功则返回现场实时', () async {
     startPunchLocationWarmup();
     await location.warmupStarted.future;
-    location.warmup.add(position(age: const Duration(minutes: 20)));
+    location.warmup.add(position(age: const Duration(minutes: 4)));
     await Future<void>.delayed(Duration.zero);
     location.current = position(latitude: 30.5);
     final result = await getPunchLocation();
@@ -389,7 +391,7 @@ void main() {
   test('已有预热缓存且实时超时则使用预热缓存并保留采集时刻', () async {
     startPunchLocationWarmup();
     await location.warmupStarted.future;
-    final cached = position(age: const Duration(minutes: 20));
+    final cached = position(age: const Duration(minutes: 4));
     location.warmup.add(cached);
     await Future<void>.delayed(Duration.zero);
     location.error = TimeoutException('test');
@@ -406,7 +408,7 @@ void main() {
     test('点击后预热成功且实时定位超时则使用预热缓存：$stage', () async {
       startPunchLocationWarmup();
       await location.warmupStarted.future;
-      final warmed = position(age: const Duration(minutes: 20));
+      final warmed = position(age: const Duration(minutes: 4));
       Future<void> publishWarmup() async {
         location.warmup.add(warmed);
         await Future<void>.delayed(Duration.zero);

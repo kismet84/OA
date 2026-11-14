@@ -24,3 +24,12 @@ admin/playwright-report/
 # Server credentials must never be committed
 **/fcm-service-account.json
 *service-account*.json
+
+# Android signing material and machine-local secrets
+*.keystore
+*.jks
+*.p12
+*.pfx
+**/key.properties
+**/signing.properties
+**/secrets/

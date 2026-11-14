@@ -261,7 +261,7 @@ check('批准后待支付；财务/管理员标记及更正记录人、时间、
 call('/admin/workflow','PUT',{'leaveThreshold':old_config['leave_threshold'],'travelThreshold':old_config['travel_threshold'],'expenseThreshold':old_config['expense_threshold'],'financeId':old_config['finance_id']},at)
 check('后台配置阈值即时生效；报销超过阈值流转财务并批准，不涉及打款')
 # Punch API never accepts caller-supplied source IP; the development endpoint explicitly simulates it.
-punch = {'kind':'NORMAL','latitude':31.23,'longitude':121.47,'accuracy':12,'ssid':prefix+'-wifi'}
+punch = {'kind':'NORMAL','latitude':31.23,'longitude':121.47,'accuracy':12,'locationSource':'LIVE','locatedAt':dt.datetime.now(dt.timezone.utc).isoformat(),'ssid':prefix+'-wifi'}
 call('/punches','POST',{'kind':'NORMAL'},et,expect=400)
 call('/punches','POST',{**punch,'accuracy':0},et,expect=400)
 call('/punches','POST',{**punch,'latitude':100},et,expect=400)

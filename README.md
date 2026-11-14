@@ -192,7 +192,7 @@ Nginx 固定内网地址 `172.30.0.10`，后端仅信任该来源的 `X-OA-Clien
 
 Mac 的 `start-backend.sh` 必须在执行 Java 前导出 `TRUSTED_PROXIES=127.0.0.1`；Caddy 必须用 `header_up X-OA-Client-IP {http.request.header.CF-Connecting-IP}` 覆盖写入客户端 IP。只转发 `CF-Connecting-IP` 无法让后端识别出口。缺少或非法的专用 IP 头时，受信代理的打卡请求仍返回 400，不能使用 `127.0.0.1` 兜底。Caddy 和后端均仅绑定 loopback，入口保持 Cloudflare 隧道；本机 dev 默认不设 `TRUSTED_PROXIES`。
 
-Flutter 使用 high 精度，首选定位与 forceLocationManager 系统通道并行，各约 45 秒；先取合格实时结果，胜出后取消剩余原生请求，页面退出、会话退出、重试也取消。筛选精度大于 0 且不超过 200 米、有效坐标及非未来时间。实时失败后使用 30 分钟内预热/系统缓存，正常卡还允许 24 小时内旧缓存，出勤不允许该旧缓存；保留采集时刻和来源，缓存须确认后提交。无合格位置提示超时且不提交；SSID 获取失败仍交服务端校验出口 IP。
+Flutter 使用 high 精度，首选定位与 forceLocationManager 系统通道并行，各约 45 秒；先取合格实时结果，胜出后取消剩余原生请求，页面退出、会话退出、重试也取消。筛选精度大于 0 且不超过 200 米、有效坐标及 5 分钟内采集时间（最多容忍未来 2 分钟）。实时失败后仅使用 5 分钟内合格预热/系统缓存，正常卡和出勤均拒绝更旧缓存；保留采集时刻和来源，缓存须确认后提交。无合格位置提示超时且不提交；SSID 获取失败仍交服务端校验出口 IP。
 
 ## 手工验证操作
 
@@ -271,7 +271,7 @@ bash scripts/verify-production.sh
 
 登录页「服务地址与设备」默认 `http://127.0.0.1:8080`；安卓模拟器改为 `http://10.0.2.2:8080`，USB 安卓可执行 `adb reverse tcp:8080 tcp:8080`；局域网真机填写电脑 IP（后端需监听可达网卡），日后填写 HTTPS 服务域名。无需在代码中写密钥。
 
-已实际构建调试包：`.runtime/oa-employee-debug.apk`，不提交 git。仓库根目录执行 `/home/box/Android/platform-tools/adb install -r .runtime/oa-employee-debug.apk` 安装。Linux 未生成 IPA；iOS 后续在 Mac 用同一工程打开 `mobile/ios/Runner.xcworkspace`、配置签名并联调；全员安装仍需适用的苹果企业账号或 MDM 条件。本次没有办理账号、修改服务器/域名/证书；安卓 FCM 增量见开头 V12。尚无连接设备的真机定位、Wi-Fi 和系统文件交互实测，具体边界见员工端说明。
+历史一期曾构建调试包：`.runtime/oa-employee-debug.apk`，不提交 git。仓库根目录执行 `/home/box/Android/platform-tools/adb install -r .runtime/oa-employee-debug.apk` 安装。Linux 未生成 IPA；iOS 后续在 Mac 用同一工程打开 `mobile/ios/Runner.xcworkspace`、配置签名并联调；全员安装仍需适用的苹果企业账号或 MDM 条件。本次没有办理账号、修改服务器/域名/证书；安卓 FCM 增量见开头 V12。尚无连接设备的真机定位、Wi-Fi 和系统文件交互实测，具体边界见员工端说明。
 
 
 ## 二期员工办公网页
@@ -356,9 +356,11 @@ cd mobile
 第二阶段优化：考勤规则/工作日历、月度报表、审批催办、常用模板、角标和图片压缩的操作说明见 [docs/phase2-optimization.md](docs/phase2-optimization.md)，接口口径见 [docs/api.md](docs/api.md)。iOS 已无限期搁置，苹果手机用员工网页 `/staff/`。
 
 
-### 分别验收事项（本批仅记录，未更改规则或签名）
+### P1-01 / P1-04 整改口径
 
-- P1-01：Flutter 定位选择器筛选 200 米；服务端现行接口允许 100,000 米，并兼容缺少来源和采集时间的旧客户端。若统一到 200 米，需用户另行确认实时定位时效与旧版本过渡方案；收紧会改变打卡能否提交，尚未定新规则。Pixel 取不到新位置仍待真机验证。
-- P1-04：仓库仍缺正式签名配置，release 禁止明文 HTTP；按已提供的验包记录，GitHub Release `android-dd98e2d`（versionCode 2004）使用调试证书（与 2001–2003 相同）。真机当前已装包未再验签，仍待验包；本批未引入密钥库、未改 release 签名、未打 APK，不代表现网 HTTPS 被降级。
+- P1-01：三端统一要求精度大于 0 且不超过 200 米，所有定位来源均须在 5 分钟内（以服务端时钟为准，最多容忍未来 2 分钟）。来源与采集时间必填；缺字段或显式 UNKNOWN 均拒绝，须升级 App 或改用 `/staff/` 员工网页。正常卡和外出卡均不接受超过 5 分钟的缓存；FIELD 仍禁用 STALE_FALLBACK。补卡审批生成 CORRECTION、无定位的路径保持不变。真机定位未核实。
+- P1-04：Android release 已配置机外签名，保持 `oaCleartext=false`、禁止明文 HTTP，无调试签名回退。由运维在仓库外生成、保管并备份正式签名密钥，通过 `OA_ANDROID_KEYSTORE_PATH`、`OA_ANDROID_STORE_PASSWORD`、`OA_ANDROID_KEY_PASSWORD`、`OA_ANDROID_KEY_ALIAS` 提供配置；不得放在仓库内。缺配置或文件时 release 明确失败，debug 不需要正式密钥。现网 2001–2004 使用调试证书，员工换正式包必须**卸载后重装**并重新登录。仓库不包含密钥，本批未打 APK、未在真机验签，不代表现网 HTTPS 被降级。
 
 本轮定位取消与网络超时的真机效果未核实；现网超时未复现。Caddy 仅改仓库样例，现网响应头未核实，本批未部署 Mac。
+
+签名配置验收可运行 `source scripts/env.sh && python3 scripts/verify-android-signing.py`，或 `cd mobile/android && ./gradlew :app:verifyReleaseSigning --dry-run`（未提供签名环境变量时应明确失败）；`:app:validateSigningDebug --dry-run` 不要求正式密钥。本批不生成 keystore，不运行安装包构建任务。签名文件及本机 secrets 目录由 `.gitignore` 排除。

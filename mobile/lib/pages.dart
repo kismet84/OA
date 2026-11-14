@@ -266,7 +266,14 @@ class _PunchState extends State<PunchPage> with Guard<PunchPage> {
       allowStaleLastKnown: kind == 'NORMAL',
     );
     final value = location.position;
-    punchPayload(kind, value.latitude, value.longitude, value.accuracy);
+    punchPayload(
+      kind,
+      value.latitude,
+      value.longitude,
+      value.accuracy,
+      locationSource: location.locationSource,
+      locatedAt: location.locatedAt,
+    );
     position = value;
     locatedAt = location.locatedAt;
     locationSource = location.locationSource;

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { validatePunchLocation } from './punchValidation';
 import AttendanceRules from './AttendanceRules.vue';
 import AttendanceMonthly from './AttendanceMonthly.vue';
 import UrgeButton from './UrgeButton.vue';
@@ -555,7 +556,9 @@ async function exportCsv() {
 async function simulate() {
   await run(async () => {
     const { userId, exitIp, ...punch } = simulator;
-    const r = await api('/admin/dev/punch', 'POST', { userId, exitIp, punch });
+    const timestamp = Date.now();
+    validatePunchLocation(punch.accuracy, timestamp);
+    const r = await api('/admin/dev/punch', 'POST', { userId, exitIp, punch: {...punch, locationSource: 'LIVE', locatedAt: new Date(timestamp).toISOString()} });
     message.value = '打卡成功，记录编号 #' + r.id;
   });
 }
@@ -810,7 +813,7 @@ onMounted(async () => {
               v-model.number="simulator.accuracy"
               type="number"
               min="0.01"
-              max="100000"
+              max="200"
               step="any"
               required /></label
           ><label>公司 Wi-Fi 名称<input v-model="simulator.ssid" maxlength="200" /></label

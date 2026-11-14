@@ -31,7 +31,7 @@ class PunchControllerTest {
             })
         .requestAttr("actor", actor)
         .contentType(MediaType.APPLICATION_JSON)
-        .content("{\"kind\":\"NORMAL\",\"latitude\":31.23,\"longitude\":121.47,\"accuracy\":12}");
+        .content("{\"kind\":\"NORMAL\",\"latitude\":31.23,\"longitude\":121.47,\"accuracy\":12,\"locationSource\":\"LIVE\",\"locatedAt\":\"2026-11-13T12:00:00Z\"}");
   }
 
   @Test

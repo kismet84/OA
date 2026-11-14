@@ -52,21 +52,126 @@ void main() {
       expect(() => Api.normalizeBase(v), throwsA(isA<ApiError>()));
     }
   });
-  test('定位必填且不能发送伪造出口IP', () {
-    for (final v in [null, double.nan, 91.0]) {
+  test('打卡200米通过；201米、旧来源、缺字段与过期均拒绝', () {
+    final now = DateTime.now();
+    final valid = punchPayload(
+      'NORMAL',
+      31,
+      120,
+      200,
+      locationSource: 'LIVE',
+      locatedAt: now,
+    );
+    for (final latitude in [null, double.nan, 91.0]) {
       expect(
-        () => punchPayload('NORMAL', v, 120, 12),
+        () => punchPayload(
+          'NORMAL',
+          latitude,
+          120,
+          12,
+          locationSource: 'LIVE',
+          locatedAt: now,
+        ),
         throwsA(isA<ApiError>()),
       );
     }
-    expect(() => punchPayload('FIELD', 31, 120, 0), throwsA(isA<ApiError>()));
-    expect(punchPayload('NORMAL', 31, 120, 12, ssid: '办公网'), {
-      'kind': 'NORMAL',
-      'latitude': 31.0,
-      'longitude': 120.0,
-      'accuracy': 12.0,
-      'ssid': '办公网',
-    });
+    expect(
+      () => punchPayload(
+        'FIELD',
+        31,
+        120,
+        0,
+        locationSource: 'LIVE',
+        locatedAt: now,
+      ),
+      throwsA(isA<ApiError>()),
+    );
+    expect(
+      () => punchPayload(
+        'FIELD',
+        31,
+        120,
+        12,
+        locationSource: 'STALE_FALLBACK',
+        locatedAt: now,
+      ),
+      throwsA(isA<ApiError>()),
+    );
+    expect(valid.containsKey('exitIp'), false);
+    expect(valid['accuracy'], 200);
+    expect(valid['locationSource'], 'LIVE');
+    expect(valid['locatedAt'], now.toUtc().toIso8601String());
+    for (final source in [
+      'LIVE',
+      'WARMUP_CACHE',
+      'LAST_KNOWN',
+      'STALE_FALLBACK',
+    ]) {
+      expect(
+        punchPayload(
+          'NORMAL',
+          31,
+          120,
+          200,
+          locationSource: source,
+          locatedAt: now,
+        )['locationSource'],
+        source,
+      );
+      expect(
+        () => punchPayload(
+          'NORMAL',
+          31,
+          120,
+          200,
+          locationSource: source,
+          locatedAt: now.subtract(const Duration(minutes: 6)),
+        ),
+        throwsA(isA<ApiError>()),
+      );
+    }
+    expect(
+      () => punchPayload(
+        'NORMAL',
+        31,
+        120,
+        201,
+        locationSource: 'LIVE',
+        locatedAt: now,
+      ),
+      throwsA(isA<ApiError>()),
+    );
+    expect(() => punchPayload('NORMAL', 31, 120, 12), throwsA(isA<ApiError>()));
+    expect(
+      () => punchPayload('NORMAL', 31, 120, 12, locationSource: 'LIVE'),
+      throwsA(isA<ApiError>()),
+    );
+    expect(
+      () => punchPayload('NORMAL', 31, 120, 12, locatedAt: now),
+      throwsA(isA<ApiError>()),
+    );
+    expect(
+      () => punchPayload(
+        'NORMAL',
+        31,
+        120,
+        12,
+        locationSource: 'UNKNOWN',
+        locatedAt: now,
+      ),
+      throwsA(isA<ApiError>()),
+    );
+    expect(
+      () => punchPayload(
+        'NORMAL',
+        31,
+        120,
+        12,
+        locationSource: 'LIVE',
+        locatedAt: now.add(const Duration(minutes: 3)),
+      ),
+      throwsA(isA<ApiError>()),
+    );
   });
   test('报销采用分校验合计，要求明细及多票据合法', () {
     Json payload({

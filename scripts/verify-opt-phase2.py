@@ -46,7 +46,7 @@ test_network=None
 calendar=next((r for r in call(f'/admin/work-calendar?year={today.year}',token=at) if r['day']==day),None)
 def daily(uid):return call(f'/attendance/daily?userId={uid}&from={day}&to={day}',token=at)[0]
 def punch(uid,time,kind='NORMAL'):
-    return call('/admin/dev/punch','POST',dict(userId=uid,exitIp='127.0.0.1',at=day+'T'+time+':00',punch=dict(kind=kind,latitude=31.2,longitude=121.4,accuracy=10,ssid=prefix+'-wifi')),at)
+    return call('/admin/dev/punch','POST',dict(userId=uid,exitIp='127.0.0.1',at=day+'T'+time+':00',punch=dict(kind=kind,latitude=31.2,longitude=121.4,accuracy=10,locationSource='LIVE',locatedAt=dt.datetime.now(dt.timezone.utc).isoformat(),ssid=prefix+'-wifi')),at)
 def apply(kind,token=ot,**kw):return call('/requests','POST',dict(kind=kind,reason='优化HTTP验收',**kw),token)['id']
 def approve(rid):
     for _ in range(5):

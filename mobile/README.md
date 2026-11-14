@@ -20,7 +20,7 @@
 ## 功能
 
 - 工作台：待审批、未读系统通知、未读公告计数及五个常用入口，返回工作台时刷新。
-- 打卡：Flutter 使用 high 精度，首选定位与 forceLocationManager 系统通道并行，各约 45 秒；先取合格实时结果，胜出后取消剩余原生请求，页面退出、会话退出、重试也取消。筛选精度大于 0 且不超过 200 米、有效坐标及非未来时间。实时失败后使用 30 分钟内预热/系统缓存，正常卡还允许 24 小时内旧缓存，出勤不允许该旧缓存；保留采集时刻和来源，缓存须确认后提交。无合格位置提示超时且不提交；SSID 获取失败仍交服务端校验出口 IP。
+- 打卡：Flutter 使用 high 精度，首选定位与 forceLocationManager 系统通道并行，各约 45 秒；先取合格实时结果，胜出后取消剩余原生请求，页面退出、会话退出、重试也取消。筛选精度大于 0 且不超过 200 米、有效坐标及 5 分钟内采集时间（最多容忍未来 2 分钟）。实时失败后仅使用 5 分钟内合格预热/系统缓存，正常卡和出勤均拒绝更旧缓存；保留采集时刻和来源，缓存须确认后提交。无合格位置提示超时且不提交；SSID 获取失败仍交服务端校验出口 IP。
 - 请假/出差/外出/报销：北京时间半天时段、假期类型及证明、抄送同事、报销明细合计和1–30张票据。支持待我审批、我发起的、抄送我的，通过/驳回必填意见、撤回/按规则撤销。
 - 五类消息与公告：未读状态、公告详情自动回执、鉴权附件下载并调用设备文件查看器。
 - 通讯录：组织树及下级、姓名/工号/部门搜索、分页，只显示在职同事的职务与工作电话。
@@ -44,7 +44,7 @@ flutter build apk --debug
 cp build/app/outputs/flutter-apk/app-debug.apk ../.runtime/oa-employee-debug.apk
 ```
 
-历史一期（2026-11-11，员工网页基线 aab20c0 之前）曾生成 `/workspace/oa-system/.runtime/oa-employee-debug.apk`，并使用 `apksigner verify --verbose` 验证签名；为可安装的 debug APK，未做正式签名或商店发布。使用 `/home/box/Android/platform-tools/adb install -r .runtime/oa-employee-debug.apk` 安装，或复制到安卓手机后允许安装该来源并打开。APK、签名文件、SDK、缓存和构建目录不提交。Debug 包允许本地 HTTP，Release 禁用明文 HTTP，正式签名需以后在发布工作站配置。
+历史一期（2026-11-11，员工网页基线 aab20c0 之前）曾生成 `/workspace/oa-system/.runtime/oa-employee-debug.apk`，并使用 `apksigner verify --verbose` 验证签名；为可安装的 debug APK，未做正式签名或商店发布。使用 `/home/box/Android/platform-tools/adb install -r .runtime/oa-employee-debug.apk` 安装，或复制到安卓手机后允许安装该来源并打开。APK、签名文件、SDK、缓存和构建目录不提交。Debug 包允许本地 HTTP，Release 禁用明文 HTTP，正式签名配置已加入；机外密钥仍须由运维提供，见下文 P1-04。
 
 ## iOS 后续构建
 
@@ -79,11 +79,13 @@ cp build/app/outputs/flutter-apk/app-debug.apk ../.runtime/oa-employee-debug.apk
 `flutter test` 包含 `push_test.dart` 假设备/HTTP 测试，不连接真实 Firebase；`flutter analyze --no-fatal-infos` 可保留既有测试提示。本段为 V12 历史说明，当前安装包是否含后续修改须验包；本批未进行真机 FCM 投递验收。
 
 
-### 分别验收事项（本批仅记录，未更改规则或签名）
+### P1-01 / P1-04 整改口径
 
-- P1-01：Flutter 定位选择器筛选 200 米；服务端现行接口允许 100,000 米，并兼容缺少来源和采集时间的旧客户端。若统一到 200 米，需用户另行确认实时定位时效与旧版本过渡方案；收紧会改变打卡能否提交，尚未定新规则。Pixel 取不到新位置仍待真机验证。
-- P1-04：仓库仍缺正式签名配置，release 禁止明文 HTTP；按已提供的验包记录，GitHub Release `android-dd98e2d`（versionCode 2004）使用调试证书（与 2001–2003 相同）。真机当前已装包未再验签，仍待验包；本批未引入密钥库、未改 release 签名、未打 APK，不代表现网 HTTPS 被降级。
+- P1-01：三端统一要求精度大于 0 且不超过 200 米，所有定位来源均须在 5 分钟内（以服务端时钟为准，最多容忍未来 2 分钟）。来源与采集时间必填；缺字段或显式 UNKNOWN 均拒绝，须升级 App 或改用 `/staff/` 员工网页。正常卡和外出卡均不接受超过 5 分钟的缓存；FIELD 仍禁用 STALE_FALLBACK。补卡审批生成 CORRECTION、无定位的路径保持不变。真机定位未核实。
+- P1-04：Android release 已配置机外签名，保持 `oaCleartext=false`、禁止明文 HTTP，无调试签名回退。由运维在仓库外生成、保管并备份正式签名密钥，通过 `OA_ANDROID_KEYSTORE_PATH`、`OA_ANDROID_STORE_PASSWORD`、`OA_ANDROID_KEY_PASSWORD`、`OA_ANDROID_KEY_ALIAS` 提供配置；不得放在仓库内。缺配置或文件时 release 明确失败，debug 不需要正式密钥。现网 2001–2004 使用调试证书，员工换正式包必须**卸载后重装**并重新登录。仓库不包含密钥，本批未打 APK、未在真机验签，不代表现网 HTTPS 被降级。
 
 本轮定位取消与网络超时的真机效果未核实；现网超时未复现。Caddy 仅改仓库样例，现网响应头未核实，本批未部署 Mac。
 
 普通 API 的 30 秒、上传的 60 秒、文档读取的 90 秒和附件下载的 60 秒均覆盖响应头及完整响应体，超时会中止请求并清理上传进度。写操作超时表示结果未知，应先查询单据再决定是否重试。
+
+签名配置验收可运行 `source scripts/env.sh && python3 scripts/verify-android-signing.py`，或 `cd mobile/android && ./gradlew :app:verifyReleaseSigning --dry-run`（未提供签名环境变量时应明确失败）；`:app:validateSigningDebug --dry-run` 不要求正式密钥。本批不生成 keystore，不运行安装包构建任务。签名文件及本机 secrets 目录由 `.gitignore` 排除。

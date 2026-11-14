@@ -5,6 +5,35 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Values are supplied only by the release workstation environment.
+val releaseSigningVariables = listOf(
+    "OA_ANDROID_KEYSTORE_PATH", "OA_ANDROID_STORE_PASSWORD",
+    "OA_ANDROID_KEY_PASSWORD", "OA_ANDROID_KEY_ALIAS",
+)
+val releaseSigningValues = releaseSigningVariables.associateWith { System.getenv(it)?.takeIf(String::isNotBlank) }
+val repositoryDirectory = rootProject.projectDir.parentFile.parentFile.canonicalFile
+val releaseKeystore = releaseSigningValues["OA_ANDROID_KEYSTORE_PATH"]?.let { file(it).canonicalFile }
+fun requireReleaseSigning() {
+    val missing = releaseSigningVariables.filter { releaseSigningValues[it] == null }
+    if (missing.isNotEmpty()) throw GradleException(
+        "Release signing requires external signing credentials; set environment variables: ${missing.joinToString()}")
+    if (releaseKeystore == null || !releaseKeystore.isFile ||
+        releaseKeystore.toPath().startsWith(repositoryDirectory.toPath()))
+        throw GradleException("OA_ANDROID_KEYSTORE_PATH must reference an existing keystore outside the repository")
+}
+// Validate the resolved task graph, including dry runs and abbreviated release task names.
+// Debug and ordinary IDE configuration do not need release credentials.
+gradle.taskGraph.whenReady {
+    if (allTasks.any { it.project == project &&
+        it.name.contains("release", ignoreCase = true) }) {
+        requireReleaseSigning()
+    }
+}
+tasks.register("verifyReleaseSigning") {
+    description = "Validate external release signing configuration without producing an installable package"
+    doLast { requireReleaseSigning() }
+}
+
 android {
     namespace = "com.company.oa_employee"
     compileSdk = flutter.compileSdkVersion
@@ -30,13 +59,20 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = releaseKeystore
+            storePassword = releaseSigningValues["OA_ANDROID_STORE_PASSWORD"]
+            keyPassword = releaseSigningValues["OA_ANDROID_KEY_PASSWORD"]
+            keyAlias = releaseSigningValues["OA_ANDROID_KEY_ALIAS"]
+        }
+    }
+
     buildTypes {
         debug { manifestPlaceholders["oaCleartext"] = "true" }
         release {
             manifestPlaceholders["oaCleartext"] = "false"
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            // Production signing must be configured on the release workstation.
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 }

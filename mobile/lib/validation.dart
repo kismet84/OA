@@ -41,20 +41,25 @@ Json punchPayload(
       latitude.abs() > 90 ||
       longitude.abs() > 180 ||
       accuracy <= 0 ||
-      accuracy > 100000) {
-    throw ApiError('必须成功获取有效定位后再提交');
+      accuracy > 200) {
+    throw ApiError('必须成功获取有效定位，精度须大于0且不超过200米');
   }
-  if (locationSource != null &&
-      (![
-            'LIVE',
-            'WARMUP_CACHE',
-            'LAST_KNOWN',
-            'STALE_FALLBACK',
-            'UNKNOWN',
-          ].contains(locationSource) ||
-          locatedAt == null ||
-          (kind == 'FIELD' && locationSource == 'STALE_FALLBACK'))) {
-    throw ApiError('定位采集时间或来源无效');
+  if (locationSource == null ||
+      locatedAt == null ||
+      ![
+        'LIVE',
+        'WARMUP_CACHE',
+        'LAST_KNOWN',
+        'STALE_FALLBACK',
+      ].contains(locationSource)) {
+    throw ApiError('定位来源或采集时间缺失或不支持，请升级 App 或改用员工网页');
+  }
+  final age = DateTime.now().difference(locatedAt);
+  if (age > const Duration(minutes: 5) || age < const Duration(minutes: -2)) {
+    throw ApiError('定位采集时间须在5分钟内，且不得超过未来2分钟，请重新定位');
+  }
+  if (kind == 'FIELD' && locationSource == 'STALE_FALLBACK') {
+    throw ApiError('外出打卡不允许使用超时旧缓存');
   }
   return {
     'kind': kind,
@@ -62,8 +67,8 @@ Json punchPayload(
     'longitude': longitude,
     'accuracy': accuracy,
     if (ssid != null && ssid.isNotEmpty) 'ssid': ssid,
-    if (locatedAt != null) 'locatedAt': locatedAt.toUtc().toIso8601String(),
-    'locationSource': ?locationSource,
+    'locatedAt': locatedAt.toUtc().toIso8601String(),
+    'locationSource': locationSource,
   };
 }
 

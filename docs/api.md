@@ -155,7 +155,7 @@
 }
 ```
 
-定位三项必须存在且合法：纬度 [-90,90]、经度 [-180,180]、精度 (0,100000] 米；现场打卡时间取服务端当前上海时间；补卡通过审批申请，见上文。`NORMAL` 要求匹配登记 SSID 或真实来源 IP。`FIELD` 要求本人有已批准的 TRAVEL/OUTING，且 `startAt <= 当前时间 < endAt`；任何地点和网络均可。请假不阻止打卡和查记录。
+定位三项必须存在且合法：纬度 [-90,90]、经度 [-180,180]、精度 (0,200] 米；现场打卡时间取服务端当前上海时间；补卡通过审批申请，见上文。`NORMAL` 要求匹配登记 SSID 或真实来源 IP。`FIELD` 要求本人有已批准的 TRAVEL/OUTING，且 `startAt <= 当前时间 < endAt`；任何地点和网络均可。请假不阻止打卡和查记录。
 
 正式接口不接受用户填写出口 IP，仅使用连接来源；若连接来源恰好在 `TRUSTED_PROXIES` 中，则读取由反向代理**覆盖写入**的 `X-OA-Client-IP`。不要信任任意来源的转发头。Nginx 样例使用连接来源覆盖此头。Mac 的 Caddy + Cloudflare 链路必须在后端启动环境设置 `TRUSTED_PROXIES=127.0.0.1`，并在 Caddy 的 `reverse_proxy` 中设置 `header_up X-OA-Client-IP {http.request.header.CF-Connecting-IP}`（[完整样例](../deploy/caddy/README.md)）。Caddy/后端只绑定 loopback，Cloudflare 隧道是外部唯一入口；无 `CF-Connecting-IP` 时不填造 IP，受信代理缺少合法专用头的打卡请求返回 400「可信反向代理必须传递真实客户端 IP」。后端不读取任意 `X-Forwarded-For`，本机 dev 默认不信任 loopback。SSID 是客户端声明，不能证明设备真实连入指定 Wi-Fi；需要强网络校验时只登记办公出口 IP，后续 App 再补充可信网络采集。
 
@@ -642,11 +642,11 @@ Flutter `push_test.dart` 用假设备和 mock HTTP 验证权限拒绝、登记�
 | 字段 | 含义 |
 | --- | --- |
 | `locatedAt` | ISO-8601 带时区时间戳，新客户端传 UTC `Z`；记录真实定位采集时刻 |
-| `locationSource` | `LIVE` 现场实时（含 Android LocationManager 新定位）、`WARMUP_CACHE` 预热缓存、`LAST_KNOWN` 系统最近定位、`STALE_FALLBACK` 超时旧缓存、`UNKNOWN` 未知/旧客户端 |
+| `locationSource` | `LIVE` 现场实时（含 Android LocationManager 新定位）、`WARMUP_CACHE` 预热缓存、`LAST_KNOWN` 系统最近定位、`STALE_FALLBACK` 超时旧缓存、`UNKNOWN` 仅历史记录展示，新提交拒绝 |
 
-声明具体来源时必须传采集时间；时间不能超过未来 2 分钟或过去 24 小时。预热和系统最近定位最多 30 分钟；超时旧缓存仅正常打卡允许，出勤禁止。来源白名单校验；旧客户端未传时保存 `UNKNOWN`/NULL，不影响原网络与外出审批校验。补卡审批生成 `CORRECTION` 来源，无定位采集时间；客户端不能自行声明补卡来源。
+三端统一要求精度大于 0 且不超过 200 米，所有定位来源均须在 5 分钟内（以服务端时钟为准，最多容忍未来 2 分钟）。来源与采集时间必填；缺字段或显式 UNKNOWN 均拒绝，须升级 App 或改用 `/staff/` 员工网页。正常卡和外出卡均不接受超过 5 分钟的缓存；FIELD 仍禁用 STALE_FALLBACK。补卡审批生成 CORRECTION、无定位的路径保持不变。真机定位未核实。
 
-打卡列表与 CSV 返回 `located_at`、`location_source`，列表同时提供 `locatedAt`、`locationSource` 别名。历史记录可为 NULL，显示未知/历史记录；定位来源与「现场打卡/补卡」记录类型分列。网页获取浏览器实时定位（禁止复用缓存），提交 UTC 采集时间及 `LIVE`；Flutter 使用原始 Position.timestamp，预热缓存保持原时间，提交前显示来源与采集时间供确认。
+打卡列表与 CSV 返回 `located_at`、`location_source`，列表同时提供 `locatedAt`、`locationSource` 别名。历史记录可为 NULL，显示未知/历史记录；定位来源与「现场打卡/补卡」记录类型分列。网页获取浏览器实时定位（禁止复用缓存），提交前校验 200 米精度与 5 分钟时效，提交 UTC 采集时间及 `LIVE`；Flutter 使用原始 Position.timestamp，预热缓存保持原时间，提交前显示来源与采集时间供确认。
 
 ### 写事务锁隔离
 

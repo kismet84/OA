@@ -313,7 +313,7 @@ class ReviewFixesHttpTest {
   }
 
   @Test
-  void provenancePersistsAndLegacyRemainsCompatible() {
+  void provenancePersistsAndLegacyIsRejected() {
     for (String source : List.of("LIVE", "WARMUP_CACHE", "LAST_KNOWN", "STALE_FALLBACK")) {
       long id = ((Number) ok("POST", "/punches", ot, punch(source)).get("id")).longValue();
       var r = db.queryForMap("SELECT * FROM punches WHERE id=?", id);
@@ -324,10 +324,8 @@ class ReviewFixesHttpTest {
     assertNotNull(visible.get("locatedAt"));
     assertEquals(visible.get("location_source"), visible.get("locationSource"));
     assertTrue(visible.get("locatedAt").toString().matches(".*[TZ+].*"));
-    long legacy = ((Number) ok("POST", "/punches", ot, punch(null)).get("id")).longValue();
-    assertEquals(
-        "UNKNOWN",
-        db.queryForObject("SELECT location_source FROM punches WHERE id=?", String.class, legacy));
+    status(400, "POST", "/punches", ot, punch(null));
+    status(400, "POST", "/punches", ot, punch("UNKNOWN"));
     status(400, "POST", "/punches", ot, punch("FAKE"));
     var missing = punch("LIVE");
     missing.remove("locatedAt");
@@ -335,6 +333,39 @@ class ReviewFixesHttpTest {
     var stale = punch("LAST_KNOWN");
     stale.put("locatedAt", Instant.now().minusSeconds(3600).toString());
     status(400, "POST", "/punches", ot, stale);
+  }
+
+  @Test
+  void punchPrecisionFreshnessAndUpgradeErrors() {
+    for (String source : List.of("LIVE", "WARMUP_CACHE", "LAST_KNOWN", "STALE_FALLBACK")) {
+      var valid = punch(source);
+      valid.put("accuracy", 200);
+      valid.put("locatedAt", Instant.now().minusSeconds(240).toString());
+      ok("POST", "/punches", ot, valid);
+      for (long seconds : new long[] {301, 1800, 86400, -121}) {
+        valid.put("locatedAt", Instant.now().minusSeconds(seconds).toString());
+        var denied = call("POST", "/punches", ot, valid);
+        assertEquals(400, denied.getStatusCode().value());
+        assertTrue(denied.getBody().get("message").toString().contains("5分钟"));
+      }
+    }
+    var inaccurate = punch("LIVE");
+    inaccurate.put("accuracy", 201);
+    status(400, "POST", "/punches", ot, inaccurate);
+    for (String missing : List.of("locatedAt", "locationSource", "UNKNOWN")) {
+      var legacy = punch("LIVE");
+      if (missing.equals("UNKNOWN")) legacy.put("locationSource", "UNKNOWN");
+      else legacy.remove(missing);
+      var denied = call("POST", "/punches", ot, legacy);
+      assertEquals(400, denied.getStatusCode().value());
+      assertTrue(denied.getBody().get("message").toString().contains("升级 App 或改用员工网页"));
+    }
+    var field = punch("LIVE");
+    field.put("kind", "FIELD");
+    field.put("locatedAt", Instant.now().minusSeconds(301).toString());
+    var denied = call("POST", "/punches", ot, field);
+    assertEquals(400, denied.getStatusCode().value());
+    assertTrue(denied.getBody().get("message").toString().contains("5分钟"));
   }
 
   @Test
