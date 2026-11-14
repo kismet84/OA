@@ -186,11 +186,13 @@ class TaskController {
       ApiException.require(
           people.equals(previous) && Objects.equals(deadline, old.get("due_at")),
           "已完成任务不可改负责人或截止日期，请先重开");
-    for (long p : people)
-      ApiException.require(
-          db.queryForObject("SELECT count(*) FROM users WHERE id=? AND enabled", Long.class, p)
-              == 1,
-          "负责人必须为在职员工");
+    if (old == null || !old.get("status").equals("COMPLETED")) {
+      for (long p : people)
+        ApiException.require(
+            db.queryForObject("SELECT count(*) FROM users WHERE id=? AND enabled", Long.class, p)
+                == 1,
+            "负责人必须为在职员工");
+    }
     if (id == null)
       id =
           db.queryForObject(

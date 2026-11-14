@@ -7,6 +7,14 @@ http://:8088 {
 	}
 	log
 
+	# 所有静态页与 API 共用；公网 HTTPS 的 HSTS 由 Cloudflare 负责。
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy same-origin
+		Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; frame-src 'self' blob:; object-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'"
+	}
+
 	handle /api/* {
 		reverse_proxy 127.0.0.1:8080 {
 			# 覆盖客户端同名头。缺少 CF 头时为空，由后端拒绝打卡。

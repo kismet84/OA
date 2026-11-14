@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'attachment_compress.dart';
@@ -23,9 +24,19 @@ class Api {
   String base;
   String? token;
   final http.Client client;
+  final Duration requestTimeout;
+  final Duration uploadTimeout;
+  final Duration documentTimeout;
+  final Duration downloadTimeout;
   void Function()? onUnauthorized;
-  Api({this.base = 'http://127.0.0.1:8080', http.Client? client})
-    : client = client ?? http.Client();
+  Api({
+    this.base = 'http://127.0.0.1:8080',
+    http.Client? client,
+    this.requestTimeout = const Duration(seconds: 30),
+    this.uploadTimeout = const Duration(seconds: 60),
+    this.documentTimeout = const Duration(seconds: 90),
+    this.downloadTimeout = const Duration(seconds: 60),
+  }) : client = client ?? http.Client();
 
   static String normalizeBase(String input) {
     final uri = Uri.tryParse(input.trim());
@@ -67,16 +78,74 @@ class Api {
         : jsonDecode(utf8.decode(response.bodyBytes));
   }
 
+  // One deadline includes headers and the complete body. Abortable requests stop
+  // IOClient/BrowserClient even when no headers have arrived yet; cancel also
+  // releases a response stream supplied by an injected client.
+  Future<http.Response> _response(
+    http.BaseRequest request,
+    Completer<void> abort,
+    Duration limit,
+  ) async {
+    StreamSubscription<List<int>>? subscription;
+    final body = Completer<http.Response>();
+    Future<http.Response> read() async {
+      final response = await client.send(request);
+      if (abort.isCompleted) {
+        await response.stream.listen((_) {}).cancel();
+        throw TimeoutException('request deadline');
+      }
+      final bytes = <int>[];
+      subscription = response.stream.listen(
+        bytes.addAll,
+        onError: (Object error, StackTrace stack) {
+          if (!body.isCompleted) {
+            body.completeError(error, stack);
+          }
+        },
+        onDone: () {
+          if (!body.isCompleted) {
+            body.complete(
+              http.Response.bytes(
+                bytes,
+                response.statusCode,
+                headers: response.headers,
+                request: request,
+                reasonPhrase: response.reasonPhrase,
+              ),
+            );
+          }
+        },
+      );
+      return body.future;
+    }
+
+    try {
+      return await read().timeout(limit);
+    } on TimeoutException {
+      if (!abort.isCompleted) abort.complete();
+      // Do not wait for a stalled peer's cancellation acknowledgement.
+      unawaited(subscription?.cancel());
+      throw ApiError(
+        request.method == 'GET'
+            ? '请求超时，请检查网络后重试'
+            : '请求超时，操作结果尚未确认，请先查询单据再决定是否重试',
+      );
+    }
+  }
+
   Future<dynamic> call(String path, {String method = 'GET', Json? data}) async {
-    final request = http.Request(method, uri(path))..headers.addAll(headers);
+    final abort = Completer<void>();
+    final request = http.AbortableRequest(
+      method,
+      uri(path),
+      abortTrigger: abort.future,
+    )..headers.addAll(headers);
     if (data != null) {
       request.headers['Content-Type'] = 'application/json';
       request.body = jsonEncode(data);
     }
     try {
-      final response = await http.Response.fromStream(
-        await client.send(request).timeout(const Duration(seconds: 30)),
-      );
+      final response = await _response(request, abort, requestTimeout);
       return decode(response);
     } on ApiError {
       rethrow;
@@ -131,14 +200,18 @@ class Api {
         throw ApiError('附件仅支持 PDF、PNG、JPEG');
       }
       attachmentProgress.value = '正在上传 第 $index/$total 份';
-      final request = http.MultipartRequest('POST', uri('/attachments'))
-        ..headers.addAll(headers)
-        ..files.add(
-          http.MultipartFile.fromBytes('file', bytes, filename: name),
-        );
-      final response = await http.Response.fromStream(
-        await client.send(request).timeout(const Duration(seconds: 60)),
-      );
+      final abort = Completer<void>();
+      final request =
+          http.AbortableMultipartRequest(
+              'POST',
+              uri('/attachments'),
+              abortTrigger: abort.future,
+            )
+            ..headers.addAll(headers)
+            ..files.add(
+              http.MultipartFile.fromBytes('file', bytes, filename: name),
+            );
+      final response = await _response(request, abort, uploadTimeout);
       return decode(response)['id'] as String;
     } on ApiError {
       rethrow;
@@ -151,12 +224,20 @@ class Api {
     }
   }
 
+  Future<http.Response> _downloadResponse(String path, Duration limit) {
+    final abort = Completer<void>();
+    final request = http.AbortableRequest(
+      'GET',
+      uri(path),
+      abortTrigger: abort.future,
+    )..headers.addAll(headers);
+    return _response(request, abort, limit);
+  }
+
   Future<Uint8List> documentBytes(String path) async {
     try {
       return decode(
-        await client
-            .get(uri(path), headers: headers)
-            .timeout(const Duration(seconds: 90)),
+        await _downloadResponse(path, documentTimeout),
         binary: true,
       );
     } on ApiError {
@@ -169,9 +250,7 @@ class Api {
   Future<Uint8List> download(String id) async {
     try {
       return decode(
-        await client
-            .get(uri('/attachments/$id'), headers: headers)
-            .timeout(const Duration(seconds: 60)),
+        await _downloadResponse('/attachments/$id', downloadTimeout),
         binary: true,
       );
     } on ApiError {

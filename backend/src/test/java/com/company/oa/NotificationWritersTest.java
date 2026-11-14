@@ -13,8 +13,8 @@ class NotificationWritersTest {
   final NotificationService notices=mock(NotificationService.class);
   @Test void approvalAssetContractVisitorKeepOriginalWordingAndLinks() {
     var workflow=new WorkflowService(db,auth,Clock.systemUTC()); workflow.notifications=notices;
-    workflow.notify(7,"审批单 #9 已批准");
-    verify(notices).write(7L,"审批单 #9 已批准");
+    workflow.notify(9,7,"审批单 #9 已批准");
+    verify(notices).write(7L,"审批单 #9 已批准","request_id",9L);
     var assets=new AssetController(db,auth); assets.notifications=notices;
     assets.notifyApplicant(Map.of("user_id",7L,"id",9L),"已发放");
     verify(notices).write(7L,"资产领用：已发放","asset_request_id",9L);

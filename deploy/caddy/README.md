@@ -31,3 +31,11 @@ Caddy 用 Cloudflare 覆盖写入的 `CF-Connecting-IP` **覆盖**上游 `X-OA-C
 - 在默认 dev 环境运行 `scripts/verify-mvp.py`，防伪造头用例应继续返回 400。受信代理路径另由 `PunchControllerTest` 覆盖；不要为跑 dev 验收而开启 loopback 信任。
 
 登录与打卡共用可信代理客户端 IP 解析：后端仅在来源属于 TRUSTED_PROXIES 时接受本代理覆盖的 X-OA-Client-IP，不直接读取 CF-Connecting-IP 或 X-Forwarded-For。登录真实 IP 失败上限100次/15分钟，成功不计数；账号规范名与用户ID均在5次失败后锁定，工号/手机号共享用户计数。专用头缺失或非法时登录告警并退回独立 proxy-unknown 桶（1000次失败/15分钟），打卡仍返回400；应检查代理头配置以恢复真实 IP 隔离。
+
+## 浏览器安全响应头（仓库样例）
+
+本轮只修改仓库样例，未应用、未部署 Mac，现网 Caddy 响应头及 Cloudflare 配置未核实。只有后续部署后才会对 Mac 生效。
+
+顶层 header 对静态页面和 API 统一设置 nosniff、DENY、same-origin 及与 Nginx 一致的 CSP；保留图片 data:/blob: 和 iframe blob: 供 PDF、图片、水印预览使用。这里的监听为本机 HTTP，不发送 HSTS；公网 HTTPS 应由 Cloudflare 配置 `Strict-Transport-Security: max-age=31536000`，部署验收须核对实际公网响应，不能将样例检查当作现网验证。
+
+本地执行 `python3 scripts/verify-review-csp.py` 检查两份仓库配置，无需连接生产环境。

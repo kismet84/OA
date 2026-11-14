@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 
 import 'api.dart';
+import 'punch_location.dart';
 import 'push.dart';
 import 'ui.dart';
 import 'validation.dart';
@@ -91,6 +92,7 @@ class _EmployeeAppState extends State<EmployeeApp> {
   }
 
   void expired() {
+    stopPunchLocationWarmup();
     push?.deactivate();
     if (widget.restoreSession) storage.delete(key: 'oa_token');
     navigator.currentState?.popUntil((r) => r.isFirst);
@@ -121,6 +123,7 @@ class _EmployeeAppState extends State<EmployeeApp> {
   }
 
   Future<void> logout() async {
+    stopPunchLocationWarmup();
     try {
       await push?.logout();
       await api.call('/auth/logout', method: 'POST');

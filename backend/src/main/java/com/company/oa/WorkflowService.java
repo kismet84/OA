@@ -225,7 +225,7 @@ public class WorkflowService {
       db.update("INSERT INTO request_cc VALUES(?,?)", id, recipient);
       notifications.write(recipient, "审批单 #" + id + " 抄送给您", "request_id", id);
     }
-    notify(chain.getFirst(), "审批单 #" + id + " 待您处理");
+    notify(id, chain.getFirst(), "审批单 #" + id + " 待您处理");
     auth.audit(actor.id(), "SUBMIT_REQUEST", id);
     return id;
   }
@@ -340,9 +340,9 @@ public class WorkflowService {
     if (finalApproval && r.get("kind").equals("EXPENSE"))
       db.update("UPDATE requests SET payment_status='UNPAID' WHERE id=?", id);
     if (status.equals("PENDING"))
-      notify(
+      notify(id,
           ((Number) nextSteps.getFirst().get("approver_id")).longValue(), "审批单 #" + id + " 待您处理");
-    else notify(owner, "审批单 #" + id + (in.approve() ? " 已批准" : " 已驳回"));
+    else notify(id, owner, "审批单 #" + id + (in.approve() ? " 已批准" : " 已驳回"));
     if (!status.equals("PENDING"))
       for (long recipient : db.queryForList("SELECT user_id FROM request_cc WHERE request_id=?", Long.class, id))
         notifications.write(recipient, "抄送审批单 #" + id + (in.approve() ? " 已批准" : " 已驳回"), "request_id", id);
@@ -407,7 +407,7 @@ public class WorkflowService {
                 + " action='APPROVE_REQUEST' AND target=? AND actor_id IS NOT NULL",
             id,
             String.valueOf(id)))
-      notify(((Number) s.get("recipient_id")).longValue(), "审批单 #" + id + " 已由申请人或管理员撤销/撤回");
+      notify(id, ((Number) s.get("recipient_id")).longValue(), "审批单 #" + id + " 已由申请人或管理员撤销/撤回");
     db.update(
         "UPDATE requests SET status=? WHERE id=?",
         status.equals("PENDING") ? "WITHDRAWN" : "CANCELLED",
@@ -441,7 +441,7 @@ public class WorkflowService {
     db.update("INSERT INTO balance_changes(user_id,type_id,year,delta,balance_after,request_id,actor_id,reason) VALUES(?,?,?,?,?,?,?,?)", user, type, year, delta, after, request, actor, reason);
   }
 
-  void notify(long user, String message) {
-    notifications.write(user, message);
+  void notify(long requestId, long user, String message) {
+    notifications.write(user, message, "request_id", requestId);
   }
 }

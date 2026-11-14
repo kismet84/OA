@@ -41,7 +41,7 @@ class PushHttpTest {
     @PostMapping("/api/test-push")
     @org.springframework.transaction.annotation.Transactional
     Object write(jakarta.servlet.http.HttpServletRequest req) {
-      workflow.notify(Auth.actor(req).id(), "测试系统通知");
+      notices.write(Auth.actor(req).id(), "测试系统通知");
       return Map.of("message","已写入");
     }
   }

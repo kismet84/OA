@@ -16,6 +16,85 @@ StreamSubscription<Position>? _warmupSub;
 Position? _warmedPosition;
 int _warmupGeneration = 0;
 
+/// A task owns its native request, rather than just discarding its Future.
+class PunchPositionTask {
+  final _result = Completer<Position>();
+  final Future<void> Function() _cancelNative;
+  Future<void>? _cancellation;
+  Future<Position> get position => _result.future;
+  PunchPositionTask(Future<Position> source, this._cancelNative) {
+    source.then(
+      (value) {
+        if (!_result.isCompleted) _result.complete(value);
+      },
+      onError: (Object error, StackTrace stack) {
+        if (!_result.isCompleted) _result.completeError(error, stack);
+      },
+    );
+  }
+  Future<void> cancel() {
+    if (_cancellation != null) return _cancellation!;
+    if (!_result.isCompleted) _result.completeError(ApiError('定位已取消'));
+    return _cancellation = _cancelNative();
+  }
+}
+
+int _requestSequence = 0;
+const _androidLocation = MethodChannel(
+  'flutter.baseflow.com/geolocator_android',
+);
+
+PunchPositionTask _nativePositionTask(LocationSettings settings) {
+  if (defaultTargetPlatform == TargetPlatform.android) {
+    // geolocator_android 5.2.1's independent current-position request protocol.
+    final id =
+        'oa-${DateTime.now().microsecondsSinceEpoch}-${_requestSequence++}';
+    final future = _androidLocation
+        .invokeMapMethod<String, dynamic>('getCurrentPosition', {
+          ...settings.toJson(),
+          'requestId': id,
+        })
+        .then((value) => Position.fromMap(value!))
+        .onError<PlatformException>((error, stack) {
+          if (error.code == 'LOCATION_SERVICES_DISABLED') {
+            throw const LocationServiceDisabledException();
+          }
+          if (error.code == 'PERMISSION_DENIED') {
+            throw PermissionDeniedException(error.message);
+          }
+          Error.throwWithStackTrace(error, stack);
+        });
+    return PunchPositionTask(future, () async {
+      await _androidLocation.invokeMethod<void>('cancelGetCurrentPosition', {
+        'requestId': id,
+      });
+    });
+  }
+  final result = Completer<Position>();
+  final sub = Geolocator.getPositionStream(locationSettings: settings).listen(
+    (p) {
+      if (!result.isCompleted) result.complete(p);
+    },
+    onError: (Object e, StackTrace stack) {
+      if (!result.isCompleted) result.completeError(e, stack);
+    },
+  );
+  return PunchPositionTask(result.future, sub.cancel);
+}
+
+@visibleForTesting
+PunchPositionTask Function(LocationSettings) punchPositionTaskFactory =
+    _nativePositionTask;
+
+Future<void> Function()? _cancelLive;
+int _locationGeneration = 0;
+Future<void> _cancelActiveLocation() async {
+  _locationGeneration++;
+  final cancel = _cancelLive;
+  _cancelLive = null;
+  if (cancel != null) await cancel();
+}
+
 AndroidSettings _locationSettings({
   Duration? timeLimit,
   bool forceLocationManager = false,
@@ -82,6 +161,11 @@ void startPunchLocationWarmup() {
 }
 
 void stopPunchLocationWarmup() {
+  unawaited(
+    _cancelActiveLocation().catchError((Object error) {
+      debugPrint('取消定位失败：$error');
+    }),
+  );
   _warmupGeneration++;
   _warmupSub?.cancel();
   _warmupSub = null;
@@ -91,6 +175,7 @@ void stopPunchLocationWarmup() {
 void resetPunchLocationWarmupForTest() {
   stopPunchLocationWarmup();
   _warmedPosition = null;
+  punchPositionTaskFactory = _nativePositionTask;
 }
 
 ({
@@ -130,22 +215,14 @@ void _logPunchLocation({
   );
 }
 
-Future<Position> _livePosition(LocationSettings settings) async {
-  final limit = settings.timeLimit ?? _liveTimeout;
-  return Geolocator.getCurrentPosition(locationSettings: settings)
-      .timeout(limit);
-}
-
-Future<Position?> _tryLiveChannel({required bool forceLocationManager}) async {
+Future<Position?> _tryLiveChannel(
+  PunchPositionTask task, {
+  required bool forceLocationManager,
+}) async {
   final channel = _channelName(forceLocationManager: forceLocationManager);
   final watch = Stopwatch()..start();
   try {
-    final position = await _livePosition(
-      _locationSettings(
-        timeLimit: _liveTimeout,
-        forceLocationManager: forceLocationManager,
-      ),
-    );
+    final position = await task.position.timeout(_liveTimeout);
     if (_isUsable(position, maxAge: _freshLastKnownAge)) {
       _logPunchLocation(
         channel: channel,
@@ -170,17 +247,42 @@ Future<Position?> _tryLiveChannel({required bool forceLocationManager}) async {
     );
     if (_isTimeout(error)) return null;
     rethrow;
+  } finally {
+    await task.cancel();
   }
 }
 
 Future<Position?> _raceLivePositions() async {
   final completer = Completer<Position?>();
+  final tasks = [false, true]
+      .map(
+        (forced) => punchPositionTaskFactory(
+          _locationSettings(
+            timeLimit: _liveTimeout,
+            forceLocationManager: forced,
+          ),
+        ),
+      )
+      .toList();
+  final cancelled = <PunchPositionTask>{};
+  Future<void> cancelTasks() async {
+    await Future.wait(tasks.where(cancelled.add).map((task) => task.cancel()));
+  }
+
+  Future<void> cancelRace() async {
+    if (!completer.isCompleted) completer.completeError(ApiError('定位已取消'));
+    await cancelTasks();
+  }
+
+  _cancelLive = cancelRace;
   var pending = 2;
   Object? nonTimeoutError;
 
   void finish({Position? position, Object? error}) {
     if (position != null) {
-      if (!completer.isCompleted) completer.complete(position);
+      if (!completer.isCompleted) {
+        completer.complete(position);
+      }
       return;
     }
     if (error != null) nonTimeoutError ??= error;
@@ -196,6 +298,7 @@ Future<Position?> _raceLivePositions() async {
   Future<void> run({required bool forceLocationManager}) async {
     try {
       final position = await _tryLiveChannel(
+        tasks[forceLocationManager ? 1 : 0],
         forceLocationManager: forceLocationManager,
       );
       finish(position: position);
@@ -206,7 +309,12 @@ Future<Position?> _raceLivePositions() async {
 
   run(forceLocationManager: false);
   run(forceLocationManager: true);
-  return completer.future;
+  try {
+    return await completer.future;
+  } finally {
+    if (identical(_cancelLive, cancelRace)) _cancelLive = null;
+    await cancelTasks();
+  }
 }
 
 Future<
@@ -218,7 +326,15 @@ Future<
   })
 >
 getPunchLocation({bool allowStaleLastKnown = true}) async {
+  final cancellation = _cancelActiveLocation();
+  final generation = _locationGeneration;
+  void ensureActive() {
+    if (generation != _locationGeneration) throw ApiError('定位已取消');
+  }
+
   try {
+    await cancellation;
+    ensureActive();
     if (!await Geolocator.isLocationServiceEnabled()) {
       throw ApiError('定位服务未开启，请在系统设置中开启');
     }
@@ -233,8 +349,10 @@ getPunchLocation({bool allowStaleLastKnown = true}) async {
       throw ApiError('定位权限已被系统禁止，请打开应用设置允许定位');
     }
 
+    ensureActive();
     try {
       final position = await _raceLivePositions();
+      ensureActive();
       if (position != null) {
         return (
           position: position,
@@ -246,6 +364,7 @@ getPunchLocation({bool allowStaleLastKnown = true}) async {
     } catch (error) {
       if (!_isTimeout(error)) rethrow;
     }
+    ensureActive();
     var warmed = _readWarmupLocation();
     if (warmed != null) return warmed;
 
@@ -261,6 +380,7 @@ getPunchLocation({bool allowStaleLastKnown = true}) async {
     } catch (error) {
       debugPrint('读取最近定位失败：$error');
     }
+    ensureActive();
     if (cached != null &&
         (_isUsable(cached, maxAge: _freshLastKnownAge) ||
             (allowStaleLastKnown &&

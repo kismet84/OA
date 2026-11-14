@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
@@ -38,6 +39,8 @@ class FakeLocation extends GeolocatorPlatform {
   Position? locationManagerCurrent;
   Position? cached;
   int cacheCalls = 0;
+  final cancelled = <int>[];
+  int requests = 0;
   final warmupStarted = Completer<void>();
   Future<void> Function(bool forced)? beforeCurrentResult;
   Future<void> Function()? beforeCacheResult;
@@ -105,6 +108,15 @@ void main() {
     resetPunchLocationWarmupForTest();
     location = FakeLocation();
     GeolocatorPlatform.instance = location;
+    punchPositionTaskFactory = (settings) {
+      final id = location.requests++;
+      return PunchPositionTask(
+        location.getCurrentPosition(locationSettings: settings),
+        () async {
+          if (!location.cancelled.contains(id)) location.cancelled.add(id);
+        },
+      );
+    };
     wifi = UnavailableWifi();
     NetworkInfoPlatform.instance = wifi;
   });
@@ -112,6 +124,90 @@ void main() {
     resetPunchLocationWarmupForTest();
     GeolocatorPlatform.instance = original;
     NetworkInfoPlatform.instance = originalWifi;
+  });
+
+  test('Android 原生 requestId 取消接口确实被调用且两个通道独立', () async {
+    resetPunchLocationWarmupForTest();
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    const channel = MethodChannel('flutter.baseflow.com/geolocator_android');
+    final pending = <Completer<Map<String, dynamic>>>[];
+    final requested = <String>[];
+    final cancelled = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          final args = call.arguments as Map;
+          if (call.method == 'getCurrentPosition') {
+            requested.add(args['requestId'] as String);
+            final result = Completer<Map<String, dynamic>>();
+            pending.add(result);
+            return result.future;
+          }
+          if (call.method == 'cancelGetCurrentPosition') {
+            cancelled.add(args['requestId'] as String);
+            return null;
+          }
+          throw StateError(call.method);
+        });
+    try {
+      final result = getPunchLocation();
+      await Future<void>.delayed(Duration.zero);
+      expect(requested.toSet(), hasLength(2));
+      pending.first.complete(position().toJson());
+      final selected = await result;
+      expect(selected.locationSource, 'LIVE');
+      expect(cancelled.toSet(), requested.toSet());
+      pending.last.complete(position(latitude: 32).toJson());
+      await Future<void>.delayed(Duration.zero);
+      expect(selected.position.latitude, 31.23);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    }
+  });
+
+  test('胜出取消败方且迟到位置不会覆盖已选位置', () async {
+    final late = Completer<void>();
+    location.current = position(latitude: 30);
+    location.locationManagerCurrent = position(latitude: 32);
+    location.beforeCurrentResult = (forced) async {
+      if (forced) await late.future;
+    };
+    final result = await getPunchLocation();
+    expect(location.cancelled, containsAll([0, 1]));
+    late.complete();
+    await Future<void>.delayed(Duration.zero);
+    expect(result.position.latitude, 30);
+    expect(location.cacheCalls, 0);
+  });
+
+  test('stop 取消进行中两个 live 请求且不回退缓存', () async {
+    final wait = Completer<void>();
+    location.current = position();
+    location.beforeCurrentResult = (_) => wait.future;
+    final pending = getPunchLocation();
+    final expectation = expectLater(pending, throwsA(isA<ApiError>()));
+    await Future<void>.delayed(Duration.zero);
+    stopPunchLocationWarmup();
+    await expectation;
+    expect(location.cancelled, containsAll([0, 1]));
+    expect(location.cacheCalls, 0);
+    wait.complete();
+  });
+
+  test('连续重试取消上一轮请求', () async {
+    final wait = Completer<void>();
+    location.current = position();
+    location.beforeCurrentResult = (_) => wait.future;
+    final first = getPunchLocation();
+    final expectation = expectLater(first, throwsA(isA<ApiError>()));
+    await Future<void>.delayed(Duration.zero);
+    location.beforeCurrentResult = null;
+    final next = await getPunchLocation();
+    await expectation;
+    expect(location.cancelled, containsAll([0, 1]));
+    expect(next.locationSource, 'LIVE');
+    wait.complete();
   });
 
   test('实时定位成功，不读取缓存', () async {
