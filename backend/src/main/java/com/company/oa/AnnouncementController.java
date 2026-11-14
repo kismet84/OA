@@ -41,15 +41,8 @@ class AnnouncementController {
           "部门不存在");
     var files = in.attachmentIds() == null ? List.<UUID>of() : in.attachmentIds();
     ApiException.require(new HashSet<>(files).size() == files.size(), "附件不可重复");
-    for (UUID file : files)
-      ApiException.require(
-          db.queryForObject(
-                  "SELECT count(*) FROM attachments WHERE id=? AND user_id=? AND NOT EXISTS(SELECT 1 FROM document_file_history h WHERE h.attachment_id=attachments.id)",
-                  Long.class,
-                  file,
-                  a.id())
-              == 1,
-          "附件不存在或无权使用");
+    for (UUID file : files.stream().sorted().toList())
+      AttachmentClaims.check(db, file, a.id(), "ANNOUNCEMENT", null);
     long id =
         db.queryForObject(
             "INSERT INTO announcements(title,body,department_id,publisher_id) VALUES(?,?,?,?)"

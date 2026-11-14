@@ -10,6 +10,8 @@ const busy = ref(false), error = ref(''), detail = ref<Row | null>(null), types 
 const files = ref<Row[]>([]), approval = reactive({approve:true,comment:''});
 const fresh = () => ({ kind:'LEAVE',typeId:null as number|null,startDate:'',startTime:'09:00',endDate:'',endTime:'18:00',correctionAt:'',punchKind:'NORMAL',amount:0,reason:'',items:[{description:'',amount:0}],ccUserIds:[] as number[] });
 const application = reactive(fresh());
+// Keep the same key after uncertain network outcomes. Changed content starts a new submission.
+let submissionKey = '', submissionBody = '';
 const templates=ref<Row[]>([]),selectedTemplate=ref(''),templateName=ref(''),notice=ref(''),draftWarnings=ref<string[]>([]);
 async function loadTemplates(){templates.value=await api('/request-templates')}
 function fill(draft:Row){Object.assign(application,fresh(),draft.payload||draft,{kind:draft.kind||application.kind,startDate:'',endDate:''});files.value=[];draftWarnings.value=(draft.warnings||[]).filter((w:string)=>w!=='请重新选择日期，附件不会复制');notice.value='请重新选择日期，附件不会复制';}
@@ -53,7 +55,12 @@ async function submit(){await run(async()=>{
     if(a.kind==='CORRECTION')Object.assign(body,{startAt:a.correctionAt+':00',punchKind:a.punchKind});
     else Object.assign(body,{startAt:a.startDate+'T'+a.startTime+':00',endAt:a.endDate+'T'+a.endTime+':00',...(a.kind==='LEAVE'?{typeId:a.typeId}:{})});
   }
-  const result=await api('/requests','POST',body);Object.assign(application,fresh());files.value=[];emit('submitted',result.id);
+  const serialized = JSON.stringify(body);
+  if (!submissionKey || serialized !== submissionBody) {
+    submissionKey = crypto.randomUUID(); submissionBody = serialized;
+  }
+  const result=await api('/requests','POST',body,{'Idempotency-Key':submissionKey});
+  submissionKey = ''; submissionBody = '';Object.assign(application,fresh());files.value=[];emit('submitted',result.id);
 })}
 async function decide(){await run(async()=>{await api('/requests/'+props.requestId+'/decision','POST',approval);await loadDetail();emit('changed')})}
 async function cancel(){await run(async()=>{await api('/requests/'+props.requestId+'/cancel','POST');await loadDetail();emit('changed')})}

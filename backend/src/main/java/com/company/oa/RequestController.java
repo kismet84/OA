@@ -54,7 +54,7 @@ class RequestController {
 
   @PostMapping("/requests")
   Object submit(@Valid @RequestBody WorkflowService.Application in, HttpServletRequest req) {
-    return Map.of("id", workflow.submit(in, Auth.actor(req)));
+    return Map.of("id", workflow.submit(in, Auth.actor(req), req.getHeader("Idempotency-Key")));
   }
 
   @GetMapping("/requests")

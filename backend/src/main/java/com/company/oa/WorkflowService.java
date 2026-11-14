@@ -67,11 +67,26 @@ public class WorkflowService {
 
   @Transactional
   public long submit(Application in, Actor actor) {
+    return submit(in, actor, null);
+  }
+
+  @Transactional
+  public long submit(Application in, Actor actor, String key) {
+    ApiException.require(key == null || key.matches("[A-Za-z0-9_-]{8,64}"), "幂等键须为8–64位字母、数字、下划线或短横线");
     ApprovalSupport.organizationSnapshot(db);
     long user = in.userId() == null ? actor.id() : in.userId();
     if (user != actor.id()) actor.requireAdmin();
     var u = lockedUser(user);
     ApiException.require((boolean) u.get("enabled"), "申请人已停用");
+    // The owner lock serializes same-user replays before validation, side effects or file claims.
+    if (key != null) {
+      var existing = db.queryForList("SELECT id FROM requests WHERE user_id=? AND client_request_id=?", user, key);
+      if (!existing.isEmpty()) return ((Number) existing.getFirst().get("id")).longValue();
+    }
+    var files = new TreeSet<UUID>();
+    if (in.attachmentId() != null) files.add(in.attachmentId());
+    if (in.kind().equals("EXPENSE") && in.attachmentIds() != null) files.addAll(in.attachmentIds());
+    for (UUID file : files) AttachmentClaims.check(db, file, actor.id(), "REQUEST", null);
     var cc = in.ccUserIds() == null ? Set.<Long>of() : new LinkedHashSet<>(in.ccUserIds());
     for (long recipient : cc) {
       ApiException.require(recipient != user, "抄送人不能是申请人本人");
@@ -175,8 +190,8 @@ public class WorkflowService {
     Long id =
         db.queryForObject(
             "INSERT INTO"
-                + " requests(user_id,kind,type_id,start_at,end_at,days,amount,reason,attachment_id,deduct_balance,annual_limit)"
-                + " VALUES(?,?,?,?,?,?,?,?,?,?,?) RETURNING id",
+                + " requests(user_id,kind,type_id,start_at,end_at,days,amount,reason,attachment_id,deduct_balance,annual_limit,client_request_id)"
+                + " VALUES(?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id",
             Long.class,
             user,
             in.kind(),
@@ -188,7 +203,8 @@ public class WorkflowService {
             in.reason(),
             in.attachmentId(),
             type != null && (boolean) type.get("deduct_balance"),
-            type == null ? null : type.get("annual_limit"));
+            type == null ? null : type.get("annual_limit"),
+            key);
     if (correction) db.update("UPDATE requests SET punch_kind=? WHERE id=?", in.punchKind(), id);
     if (overtime) db.update("UPDATE requests SET overtime_ratio=?,credited_days=? WHERE id=?", config.get("overtime_ratio"), duration.multiply((BigDecimal) config.get("overtime_ratio")), id);
     if (in.kind().equals("EXPENSE")) {
@@ -215,7 +231,7 @@ public class WorkflowService {
   }
 
   Map<String, Object> lockedUser(long user) {
-    var rows = db.queryForList("SELECT * FROM users WHERE id=? FOR UPDATE", user);
+    var rows = db.queryForList("SELECT * FROM users WHERE id=? FOR NO KEY UPDATE", user);
     ApiException.require(!rows.isEmpty(), "申请人不存在");
     return rows.getFirst();
   }

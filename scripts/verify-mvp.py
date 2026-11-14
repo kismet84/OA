@@ -171,7 +171,8 @@ attachment = call('/attachments', 'POST', payload, et, headers={'Content-Type': 
 call('/attachments/' + attachment, token=rt, expect=403)
 rid = submit(10, length=2, type_id=marriage, attachment=attachment)['id']
 approve(rid); approve(rid, ht)
-submit(13, length=2, type_id=marriage, attachment=attachment, expect=400)
+limit_proof = call('/attachments', 'POST', payload, et, headers={'Content-Type': 'multipart/form-data; boundary=' + boundary})['id']
+submit(13, length=2, type_id=marriage, attachment=limit_proof, expect=400)
 check('法定假强制证明、附件按权限下载、已批天数计入年度上限')
 rid = submit(16, type_id=personal)['id']
 approve(rid, at)
@@ -209,6 +210,8 @@ call('/admin/workflow','PUT',{'leaveThreshold':3,'travelThreshold':3,'expenseThr
 rid = submit(30,kind='OUTING',length=2)['id']
 assert len(detail(rid)['steps']) == 1
 call('/requests/'+str(rid)+'/cancel','POST',token=et)
+# A new request must use fresh uploads; keep amount/receipt validations independent.
+attachment = call('/attachments', 'POST', payload, et, headers={'Content-Type': 'multipart/form-data; boundary=' + boundary})['id']
 expense_body = {'kind':'EXPENSE','amount':1200,'reason':'验收交通费用',
                 'items':[{'description':'交通','amount':700},{'description':'住宿','amount':500}],
                 'attachmentIds':[attachment]}
@@ -243,12 +246,13 @@ assert detail(expense)['payment_status'] == 'UNPAID'
 assert len(detail(expense)['payment_history']) == 2
 assert detail(expense)['payment_history'][1]['reason'] == '支付登记错误，更正'
 # Low-value expense: finance is not in the approval chain, but may view/pay approved expenses.
-low = call('/requests','POST',{**expense_body,'amount':10,'items':[{'description':'停车','amount':10}]},et)['id']
+low_receipt = call('/attachments','POST',payload,et,headers={'Content-Type':'multipart/form-data; boundary='+boundary})['id']
+low = call('/requests','POST',{**expense_body,'attachmentIds':[low_receipt],'amount':10,'items':[{'description':'停车','amount':10}]},et)['id']
 call('/requests/'+str(low),token=ft,expect=403)
 approve(low)
 assert any(r['id']==low for r in call('/requests?kind=EXPENSE',token=ft))
 assert detail(low,ft)['payment_status']=='UNPAID'
-assert isinstance(call('/attachments/'+second_attachment,token=ft),bytes)
+assert isinstance(call('/attachments/'+low_receipt,token=ft),bytes)
 call('/requests/'+str(low)+'/payment','POST',{'status':'PAID'},ft)
 logs = call('/admin/audit',token=at)
 assert any(l['action']=='MARK_EXPENSE_PAID' and l['target']==str(low) for l in logs)

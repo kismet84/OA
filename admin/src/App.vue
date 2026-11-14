@@ -380,6 +380,7 @@ function openCreate() {
       enabled: true,
     });
   if (page.value === 'requests') {
+    requestKey = ''; requestBody = '';
     Object.assign(application, {
       userId: null,
       punchKind: 'NORMAL',
@@ -439,6 +440,7 @@ function edit(row: Row) {
       amount: row.amount,
     });
 }
+let requestKey = '', requestBody = '';
 async function save() {
   await run(async () => {
     const route = modal.value;
@@ -475,7 +477,16 @@ async function save() {
         attachmentId: application.kind === 'EXPENSE' ? null : application.attachmentId,
       };
     }
-    await api(path, method, body);
+    const headers: Record<string, string> = {};
+    if (route === 'requests') {
+      const serialized = JSON.stringify(body);
+      if (!requestKey || serialized !== requestBody) {
+        requestKey = crypto.randomUUID(); requestBody = serialized;
+      }
+      headers['Idempotency-Key'] = requestKey;
+    }
+    await api(path, method, body, headers);
+    if (route === 'requests') { requestKey = ''; requestBody = ''; }
     modal.value = '';
     await references();
     await load();

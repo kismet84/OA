@@ -77,26 +77,7 @@ class DocumentController {
     ApiException.require(
         new HashSet<>(in.attachmentIds()).size() == in.attachmentIds().size(), "附件不可重复");
     for (UUID file : in.attachmentIds().stream().sorted().toList()) {
-      var rows =
-          db.queryForList(
-              "SELECT * FROM attachments WHERE id=? AND user_id=? FOR UPDATE", file, a.id());
-      ApiException.require(!rows.isEmpty(), "附件不存在或不是您上传的文件");
-      // Never reclassify existing business attachments: their original authorization remains
-      // intact.
-      ApiException.require(
-          db.queryForObject(
-                  "SELECT (SELECT count(*) FROM announcement_attachments WHERE"
-                      + " attachment_id=?)+(SELECT count(*) FROM requests WHERE"
-                      + " attachment_id=?)+(SELECT count(*) FROM expense_attachments WHERE"
-                      + " attachment_id=?)+(SELECT count(*) FROM contract_files WHERE"
-                      + " attachment_id=?)",
-                  Long.class,
-                  file,
-                  file,
-                  file,
-                  file)
-              == 0,
-          "该附件已用于公告、审批或合同，请为文档重新上传");
+      AttachmentClaims.check(db, file, a.id(), "DOCUMENT", null);
     }
   }
 

@@ -180,16 +180,7 @@ class AssetController {
             : in.unit() != null && !in.unit().isBlank(),
         "按件资产需填写编号，消耗品需填写单位");
     if (in.attachmentId() != null)
-      ApiException.require(
-          db.queryForObject(
-                  "SELECT count(*) FROM attachments WHERE id=? AND (user_id=? OR EXISTS(SELECT 1"
-                      + " FROM assets WHERE id=? AND attachment_id=attachments.id))",
-                  Long.class,
-                  in.attachmentId(),
-                  a.id(),
-                  id)
-              == 1,
-          "请选择本人上传的附件");
+      AttachmentClaims.check(db, in.attachmentId(), a.id(), "ASSET", id);
     if (id != null) {
       var old = one("SELECT * FROM assets WHERE id=? FOR UPDATE", id);
       ApiException.require(number(old, "category_id") == in.categoryId(), "资产分类不可修改");

@@ -63,7 +63,7 @@ class Phase2AttendanceTest {
     when(db.queryForList("SELECT * FROM requests WHERE id=? FOR UPDATE", 42L)).thenReturn(List.of(request));
     when(db.queryForMap("SELECT * FROM approval_steps WHERE request_id=? AND step=?", 42L, 1))
         .thenReturn(Map.of("approver_id", 9L));
-    when(db.queryForList("SELECT * FROM users WHERE id=? FOR UPDATE", 8L))
+    when(db.queryForList("SELECT * FROM users WHERE id=? FOR NO KEY UPDATE", 8L))
         .thenReturn(List.of(Map.of("enabled", true)));
     when(db.queryForObject(anyString(), eq(Long.class), any(Object[].class))).thenReturn(0L);
     when(db.queryForObject("SELECT count(*) FROM requests r WHERE r.id=? AND TRUE", Long.class, 42L))

@@ -74,20 +74,15 @@ class AttachmentController {
       throw new ApiException(403,"合同附件请从合同详情按权限预览或下载");
     if (!a.admin() && db.queryForObject("SELECT count(*) FROM document_file_history WHERE attachment_id=?", Long.class, id) > 0)
       throw new ApiException(403, "公司文档请通过文档资料预览或下载水印件");
+    var params = new ArrayList<Object>();
+    params.add(id);
+    params.add(id);
+    String visible = RequestVisibility.sql(a, params);
     if (!a.admin()
         && ((Number) file.get("user_id")).longValue() != a.id()
         && db.queryForObject(
-                "SELECT count(*) FROM requests r WHERE (r.attachment_id=? OR EXISTS(SELECT 1 FROM expense_attachments e WHERE e.request_id=r.id AND e.attachment_id=?)) AND ((r.kind='EXPENSE' AND r.status='APPROVED' AND ?) OR r.user_id=? OR"
-                    + " EXISTS(SELECT 1 FROM approval_steps s WHERE s.request_id=r.id AND"
-                    + " s.approver_id=?) OR EXISTS(SELECT 1 FROM request_cc c WHERE c.request_id=r.id AND c.user_id=?))",
-                Long.class,
-                id,
-                id,
-                a.has("FINANCE"),
-                a.id(),
-                a.id(),
-                a.id())
-            == 0
+            "SELECT count(*) FROM requests r WHERE (r.attachment_id=? OR EXISTS(SELECT 1 FROM expense_attachments e WHERE e.request_id=r.id AND e.attachment_id=?)) AND " + visible,
+            Long.class, params.toArray()) == 0
         && !(a.has("FINANCE") && db.queryForObject("SELECT count(*) FROM assets WHERE attachment_id=?", Long.class, id)>0)
         && db.queryForObject("SELECT count(*) FROM announcement_attachments x JOIN announcements n ON n.id=x.announcement_id JOIN announcement_recipients r ON r.announcement_id=n.id WHERE x.attachment_id=? AND r.user_id=? AND n.withdrawn_at IS NULL", Long.class, id, a.id()) == 0) throw new ApiException(403, "无权访问该附件");
     Path path = root.resolve(id.toString());

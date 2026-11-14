@@ -51,9 +51,7 @@ class ContractController {
   void notice(long user,long id,String message){notifications.write(user,"合同 #"+id+"："+message, "contract_id",id);}
   void audit(Actor a,String action,long id){auth.audit(a.id(),action,id);}
   void checkFile(UUID file, long user, Long contractId) {
-    var uploaded=db.queryForList("SELECT id FROM attachments WHERE id=? AND user_id=? FOR UPDATE",file,user);
-    ApiException.require(!uploaded.isEmpty() || contractId!=null && db.queryForObject("SELECT count(*) FROM contract_files WHERE contract_id=? AND attachment_id=?",Long.class,contractId,file)>0,"附件不存在或无权使用");
-    ApiException.require(db.queryForObject("SELECT (SELECT count(*) FROM document_file_history WHERE attachment_id=?)+(SELECT count(*) FROM announcement_attachments WHERE attachment_id=?)+(SELECT count(*) FROM requests WHERE attachment_id=?)+(SELECT count(*) FROM expense_attachments WHERE attachment_id=?)+(SELECT count(*) FROM assets WHERE attachment_id=?)",Long.class,file,file,file,file,file)==0,"该附件已用于其他业务，请为合同重新上传");
+    AttachmentClaims.check(db, file, user, "CONTRACT", contractId);
   }
   record Input(@Size(max=100) String code,@NotBlank @Size(max=200) String name,@NotNull String type,
     @NotBlank @Size(max=200) String counterparty,@Size(max=100) String contact,@Size(max=50) String phone,
@@ -73,7 +71,7 @@ class ContractController {
     var us=db.queryForList("SELECT department_id FROM users WHERE id=? AND enabled",user);
     ApiException.require(!us.isEmpty(),"经办人不存在或已停用");
     var files=new LinkedHashSet<>(in.attachmentIds()==null?List.<UUID>of():in.attachmentIds());
-    for(UUID f:files)checkFile(f,a.id(),id);
+    for(UUID f:files.stream().sorted().toList())checkFile(f,a.id(),id);
     String code=in.code()==null||in.code().isBlank()?(old==null?"HT-"+today().getYear()+"-"+String.format("%06d",db.queryForObject("SELECT nextval('contract_code_seq')",Long.class)):(String)old.get("code")):in.code().trim();
     if(db.queryForObject("SELECT count(*) FROM contracts WHERE code=? AND (?::bigint IS NULL OR id<>?)",Long.class,code,id,id)>0)throw new ApiException(409,"合同编号重复");
     if(id==null)id=db.queryForObject("INSERT INTO contracts(code,name,type,counterparty,contact,phone,user_id,department_id,amount,signed_date,effective_date,expiry_date,performance,note) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id",Long.class,code,in.name().trim(),in.type(),in.counterparty().trim(),in.contact(),in.phone(),user,us.getFirst().get("department_id"),in.amount(),in.signedDate(),in.effectiveDate(),in.expiryDate(),in.performance(),in.note());
@@ -141,7 +139,7 @@ class ContractController {
   record Archive(@NotNull @Size(min=1,max=30) List<@NotNull UUID> attachmentIds){}
   @PostMapping("/{id}/archive") @Transactional Object archive(@PathVariable long id,@Valid @RequestBody Archive in,HttpServletRequest req){
     var a=Auth.actor(req);var r=get(id,a,true);if(num(r,"user_id")!=a.id()&&!a.admin())throw new ApiException(403,"仅经办人或管理员可归档");state(r.get("workflow_status").equals("TO_ARCHIVE"));
-    for(UUID f:new LinkedHashSet<>(in.attachmentIds())){
+    for(UUID f:in.attachmentIds().stream().distinct().sorted().toList()){
       ApiException.require(db.queryForObject("SELECT count(*) FROM attachments WHERE id=? AND user_id=?",Long.class,f,a.id())==1,"盖章版须为本人上传的附件");
       checkFile(f,a.id(),id);
       db.update("INSERT INTO contract_files VALUES(?,?,true) ON CONFLICT(contract_id,attachment_id) DO UPDATE SET sealed=true",id,f);

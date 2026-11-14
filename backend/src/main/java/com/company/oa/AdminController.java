@@ -245,7 +245,7 @@ class AdminController {
               in.enabled());
     } else {
       boolean wasEnabled =
-          db.queryForObject("SELECT enabled FROM users WHERE id=? FOR UPDATE", Boolean.class, id);
+          db.queryForObject("SELECT enabled FROM users WHERE id=? FOR NO KEY UPDATE", Boolean.class, id);
       db.update(
           "UPDATE users SET"
               + " employee_no=?,phone=?,name=?,roles=?,department_id=?,manager_id=?,disabled_at=CASE"
@@ -424,7 +424,7 @@ class AdminController {
   @Transactional
   Object balance(@Valid @RequestBody Balance in, HttpServletRequest req) {
     orgLock();
-    db.queryForList("SELECT id FROM users WHERE id=? FOR UPDATE", in.userId());
+    db.queryForList("SELECT id FROM users WHERE id=? FOR NO KEY UPDATE", in.userId());
     var old = db.queryForList("SELECT amount FROM balances WHERE user_id=? AND type_id=? AND year=? FOR UPDATE", in.userId(), in.typeId(), in.year());
     BigDecimal before = old.isEmpty() ? BigDecimal.ZERO : (BigDecimal) old.getFirst().get("amount");
     if (!"COMP".equals(db.queryForObject("SELECT code FROM leave_types WHERE id=?", String.class, in.typeId()))) half(in.amount());

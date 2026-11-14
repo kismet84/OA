@@ -48,7 +48,7 @@ class PunchService {
     ApiException.require(simulatedAt==null || !simulatedAt.isAfter(java.time.LocalDateTime.now(clock)),"模拟时间不得在未来");
     if (user != actor.id()) actor.requireAdmin();
     db.queryForList("SELECT pg_advisory_xact_lock(20261112,hashint8(?))", user);
-    db.queryForList("SELECT id FROM users WHERE id=? FOR UPDATE", user);
+    db.queryForList("SELECT id FROM users WHERE id=? FOR NO KEY UPDATE", user);
     auth.user(user); // Disabled accounts cannot punch, including in the simulator.
     ApiException.require(
         Double.isFinite(input.latitude())

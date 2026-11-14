@@ -14,7 +14,7 @@ export function setToken(value: string) {
   token = value;
   value ? sessionStorage.setItem(tokenKey, value) : sessionStorage.removeItem(tokenKey);
 }
-export async function api<T = any>(path: string, method = 'GET', body?: unknown): Promise<T> {
+export async function api<T = any>(path: string, method = 'GET', body?: unknown, headers: Record<string, string> = {}): Promise<T> {
   if(path==='/attachments' && body instanceof FormData) await prepareAttachment(body);
   let response: Response;
   try {
@@ -22,6 +22,7 @@ export async function api<T = any>(path: string, method = 'GET', body?: unknown)
       signal: AbortSignal.timeout(20000),
       method,
       headers: {
+        ...headers,
         ...(token ? { Authorization: 'Bearer ' + token } : {}),
         ...(body instanceof FormData || body === undefined
           ? {}

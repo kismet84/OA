@@ -240,7 +240,7 @@ class AuthController {
     Actor a = Auth.actor(req);
     String old =
         db.queryForObject(
-            "SELECT password_hash FROM users WHERE id=? FOR UPDATE", String.class, a.id());
+            "SELECT password_hash FROM users WHERE id=? FOR NO KEY UPDATE", String.class, a.id());
     ApiException.require(
         auth.encoder.matches(Auth.validPassword(input.oldPassword()), old), "原密码不正确");
     ApiException.require(!auth.encoder.matches(input.newPassword(), old), "新密码不能与原密码相同");

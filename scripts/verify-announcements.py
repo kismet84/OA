@@ -107,9 +107,9 @@ check('全员发布覆盖其他部门、排除停用；撤回隐藏正文/附件
 future=dt.datetime.now(ZoneInfo('Asia/Shanghai')).date()+dt.timedelta(days=5)
 if future.month==12 and future.day>20: future=dt.date(future.year+1,1,5)
 leave=next(t['id'] for t in call('/leave-types',token=et) if t['code']=='PERSONAL')
-file=upload(et)
 request_ids=[]
 for n,kind in enumerate(['LEAVE','TRAVEL','OUTING','EXPENSE']):
+    file=upload(et)  # Each application claims its own newly uploaded attachment.
     day=(future+dt.timedelta(days=n*2)).isoformat()
     body=dict(kind=kind,typeId=leave if kind=='LEAVE' else None,startAt=day+'T09:00:00',endAt=day+'T13:00:00',reason=prefix+kind,attachmentId=file,ccUserIds=[cc])
     if kind=='EXPENSE': body.update(amount=10,items=[dict(description='交通',amount=10)],attachmentIds=[file])

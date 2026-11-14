@@ -13,6 +13,8 @@ class ApprovalUrgeService {
   final NotificationService notifications;
   final Auth auth;
   final Clock clock;
+  @org.springframework.beans.factory.annotation.Autowired
+  org.springframework.transaction.PlatformTransactionManager transactions;
 
   ApprovalUrgeService(JdbcTemplate db, NotificationService n, Auth auth, Clock clock) {
     this.db = db;
@@ -43,6 +45,10 @@ class ApprovalUrgeService {
   }
 
   Target target(String business, long id, boolean lock) {
+    return target(business, id, lock, false);
+  }
+
+  Target target(String business, long id, boolean lock, boolean skipLocked) {
     String table =
         switch (business) {
           case "REQUEST" -> "requests";
@@ -51,8 +57,11 @@ class ApprovalUrgeService {
           default -> throw new ApiException(400, "单据类型无效");
         };
     var rows =
-        db.queryForList("SELECT * FROM " + table + " WHERE id=?" + (lock ? " FOR UPDATE" : ""), id);
-    if (rows.isEmpty()) throw new ApiException(404, "单据不存在");
+        db.queryForList("SELECT * FROM " + table + " WHERE id=?" + (lock ? " FOR UPDATE" + (skipLocked ? " SKIP LOCKED" : "") : ""), id);
+    if (rows.isEmpty()) {
+      if (skipLocked) return null;
+      throw new ApiException(404, "单据不存在");
+    }
     var r = rows.getFirst();
     if (!"PENDING".equals(r.get("status"))) return null;
     int revision = business.equals("CONTRACT") ? num(r, "revision") : 0,
@@ -208,23 +217,19 @@ class ApprovalUrgeService {
   }
 
   @Scheduled(cron = "0 */10 * * * *", zone = "Asia/Shanghai")
-  @Transactional
+  @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
   public int auto() {
     return runAuto(clock.instant(), null);
   }
 
-  @Transactional
+  @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
   public int autoForDev(Instant now, long requestId) {
     return runAuto(now, requestId);
   }
 
   int runAuto(Instant now, Long onlyRequest) {
-    if (!Boolean.TRUE.equals(
-        db.queryForObject("SELECT pg_try_advisory_xact_lock(2026111501)", Boolean.class))) return 0;
     var c = config();
     if (!Boolean.TRUE.equals(c.get("auto_urge_enabled"))) return 0;
-    long hours = ((Number) c.get("auto_urge_hours")).longValue(),
-        repeat = ((Number) c.get("auto_urge_repeat_hours")).longValue();
     int count = 0;
     for (String business : List.of("REQUEST", "CONTRACT", "ASSET")) {
       if (onlyRequest != null && !business.equals("REQUEST")) continue;
@@ -242,22 +247,40 @@ class ApprovalUrgeService {
                   + (onlyRequest == null ? "" : " AND id=" + onlyRequest)
                   + " ORDER BY id",
               Long.class)) {
-        var t = target(business, id, true);
-        if (t == null || now.isBefore(t.activated().plusSeconds(hours * 3600))) continue;
-        for (var u : recipients(t)) {
-          long uid = ((Number) u.get("id")).longValue();
-          var prev = last(t, uid, "AUTO", true);
-          if (prev != null && (repeat == 0 || now.isBefore(prev.plusSeconds(repeat * 3600))))
-            continue;
-          var latestAny = last(t, uid, null, true);
-          long cooldownMinutes = ((Number) c.get("urge_cooldown_minutes")).longValue();
-          if (latestAny != null && now.isBefore(latestAny.plusSeconds(cooldownMinutes * 60)))
-            continue;
-          send(t, uid, null, "AUTO", now, "【超时提醒】以下审批已等待超过 " + hours + " 小时：");
-          count++;
+        // No transaction spans candidates. Row locks serialize with manual urges and approvals.
+        var tx = new org.springframework.transaction.support.TransactionTemplate(transactions);
+        tx.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        tx.setTimeout(10);
+        try {
+          count += tx.execute(status -> urgeOne(business, id, now));
+        } catch (RuntimeException failure) {
+          org.slf4j.LoggerFactory.getLogger(getClass()).warn("自动催办处理失败：{} #{}，其余单据继续处理", business, id);
         }
       }
     }
     return count;
   }
+  int urgeOne(String business, long id, Instant now) {
+    var t = target(business, id, true, true);
+    if (t == null) return 0;
+    var c = config();
+    if (!Boolean.TRUE.equals(c.get("auto_urge_enabled"))) return 0;
+    long hours = ((Number) c.get("auto_urge_hours")).longValue();
+    long repeat = ((Number) c.get("auto_urge_repeat_hours")).longValue();
+    if (now.isBefore(t.activated().plusSeconds(hours * 3600))) return 0;
+    int sent = 0;
+    for (var u : recipients(t)) {
+      long uid = ((Number) u.get("id")).longValue();
+      var prev = last(t, uid, "AUTO", true);
+      if (prev != null && (repeat == 0 || now.isBefore(prev.plusSeconds(repeat * 3600)))) continue;
+      // Preserve the automatic cooldown scope of the current activation cycle.
+      var latest = last(t, uid, null, true);
+      long minutes = ((Number) c.get("urge_cooldown_minutes")).longValue();
+      if (latest != null && now.isBefore(latest.plusSeconds(minutes * 60))) continue;
+      send(t, uid, null, "AUTO", now, "【超时提醒】以下审批已等待超过 " + hours + " 小时：");
+      sent++;
+    }
+    return sent;
+  }
+
 }
