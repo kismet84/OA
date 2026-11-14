@@ -25,7 +25,7 @@ class VisitorTest {
     verify(db,times(100)).queryForObject("SELECT count(*) FROM visitors WHERE active_code=?",Long.class,"000001");
   }
   @Test void exportEscapesQuotesAndSpreadsheetFormulas(){
-    assertEquals("\"'=SUM(1)\"",VisitorController.csv("=SUM(1)"));
-    assertEquals("\"单位\"\"名称\"",VisitorController.csv("单位\"名称"));
+    assertEquals("\"'=SUM(1)\"",CsvCells.cell("=SUM(1)"));
+    assertEquals("\"单位\"\"名称\"",CsvCells.cell("单位\"名称"));
   }
 }

@@ -187,7 +187,7 @@ class OptimizationHttpTest {
       assertTrue(text.contains(path.startsWith("attendance") ? "缺卡次数" : "合计"));
     }
     assertEquals(403, httpListStatus("/admin/exports/expenses-monthly.csv?month=2026-11", ot));
-    assertEquals("\"'=test\"", ExportController.cell("=test"));
+    assertEquals("\"'=test\"", CsvCells.cell("=test"));
   }
 
   @Test

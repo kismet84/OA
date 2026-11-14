@@ -29,3 +29,5 @@ Caddy 用 Cloudflare 覆盖写入的 `CF-Connecting-IP` **覆盖**上游 `X-OA-C
 - 本机直连 Caddy、不带 `CF-Connecting-IP`，即使伪造 `X-OA-Client-IP` 或 `X-Forwarded-For`，打卡也应返回 400「可信反向代理必须传递真实客户端 IP」。无效的 CF IP 也应被拒绝，不能回退为 loopback。
 - 健康检查 `GET /api/health` 不依赖打卡 IP 头，可继续从本机调用。
 - 在默认 dev 环境运行 `scripts/verify-mvp.py`，防伪造头用例应继续返回 400。受信代理路径另由 `PunchControllerTest` 覆盖；不要为跑 dev 验收而开启 loopback 信任。
+
+登录与打卡共用可信代理客户端 IP 解析：后端仅在来源属于 TRUSTED_PROXIES 时接受本代理覆盖的 X-OA-Client-IP，不直接读取 CF-Connecting-IP 或 X-Forwarded-For。登录真实 IP 失败上限100次/15分钟，成功不计数；账号规范名与用户ID均在5次失败后锁定，工号/手机号共享用户计数。专用头缺失或非法时登录告警并退回独立 proxy-unknown 桶（1000次失败/15分钟），打卡仍返回400；应检查代理头配置以恢复真实 IP 隔离。

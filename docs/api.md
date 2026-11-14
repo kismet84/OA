@@ -5,10 +5,12 @@
 ## 身份与权限
 
 - `POST /auth/login`：`{"login":"工号或手机号","password":"密码","deviceName":"员工手机","platform":"Android"}` → `token`、`user`。会话有效期 8 小时，不滑动续期。`deviceName` / `platform` 可选，最多100 / 30字；未填显示「未命名设备」/「未知平台」，兼容既有客户端。
+- 登录限流采用 Redis 固定 15 分钟窗口：真实客户端 IP 仅累计失败，100 次后拒绝；成功不消耗或清空同出口 IP 的失败额度。只在 remoteAddr 属于 `oa.trusted-proxies`（`TRUSTED_PROXIES`）时读取代理覆盖的 `X-OA-Client-IP`，校验并规范化；不直接信任 `X-Forwarded-For` / `CF-Connecting-IP`，非受信来源忽略所有转发头。受信代理缺失/非法专用头时记录告警，登录使用独立 `login-ip:proxy-unknown` 桶（1000 次失败/15 分钟），不直接返回400；打卡仍严格返回400。
+- 登录名先 trim 并转小写；工号按大小写不敏感匹配。登录名 `login:<规范名>` 和命中用户的 `login-user:<用户ID>` 均累计失败，任一达到5次后（含正确密码）返回429，工号/手机号、切换 IP 不能绕过。未知账号同样按规范名累计，401错误提示统一。窗口自首次失败起计、不因后续失败延长；到期解除，成功清除该用户ID与工号/手机号失败键，IP失败键保留。
 - `GET /auth/me` → `user: {id,name,roles,mustChange,version}`、`development`。
 - `POST /auth/password`：`{"oldPassword":"原密码","newPassword":"至少10位新密码"}`。密码最多 72 个 UTF-8 字节，修改后所有旧会话失效，须重新登录。
 - `POST /auth/logout`：销毁当前会话。
-- 首次登录只允许查自身、改密码及退出。普通员工只看本人数据；审批人额外可查看分配给自己的单据；抄送人可查看抄送单据及附件，公告接收人可查看未撤回公告；财务额外可查看全部已批准报销及其票据，供人工支付登记；管理员可查询全员、代提交和处理审批，但不可自批。
+- 首次登录只允许查自身、改密码及退出。普通请求权限包括本人发起、审批链被指派或实际处理（approver_id / actor_id）、改派前后审批人、抄送人；审批人可查看相关单据；抄送人可查看抄送单据及附件，公告接收人可查看未撤回公告；财务额外可查看全部已批准报销及其票据，供人工支付登记；管理员可查询全员、代提交和处理审批，但不可自批。
 - 角色枚举：`EMPLOYEE` 员工、`SUPERVISOR` 直属上级、`DEPT_HEAD` 部门负责人、`ADMIN` 管理员、`FINANCE` 财务/行政。
 
 ## 管理员维护
@@ -83,7 +85,7 @@
 - 审批 `status` 继续使用 `PENDING/APPROVED/REJECTED/...`，支付状态独立存储于 `payment_status`：未批准为 null，最终批准后为 `UNPAID`（待支付），人工登记后为 `PAID`（已支付）。不调用银行或支付渠道，不自动打款，已批准报销仍不可撤销。
 - `POST /requests/{id}/payment`：财务或管理员提交 `{"status":"PAID","reason":"可选说明"}`；改回待支付使用 `{"status":"UNPAID","reason":"必填的更正原因"}`。仅已批准报销可操作，重复状态及空白更正原因返回 400；其他角色返回 403。使用单据行锁及事务，状态、历史和审计一起提交。
 - 单据上的 `payment_actor_id`、`payment_acted_at` 记录最近一次人工登记操作人和上海时间；详情的 `payment_history` 按时间顺序保留全部登记，包含 `status/actor_id/actor_name/acted_at/reason`。审计操作为 `MARK_EXPENSE_PAID` / `RESET_EXPENSE_UNPAID`，`target` 是单据 ID，可与历史中的原因关联核对。首次批准进入待支付沿用批准审计。
-- 财务可查询全部已批准报销（包括未经过财务二级审批的低额报销）及其票据，不能因此查看无关的未批准报销或其他类型单据；原有本人和审批链权限保持。后台财务账号显示审批单据和消息中心入口，无组织维护或全员导出权限。
+- 财务可查询全部已批准报销（包括未经过财务二级审批的低额报销）及其票据，不能因此查看无关的未批准报销或其他类型单据；普通请求权限（本人、审批链指派/实际处理人、改派前后审批人、抄送人）保持，详情、列表和月度报销导出共用。后台财务账号显示审批单据和消息中心入口，无组织维护或普通管理员全员导出权限；可调用月度报销导出，范围为全部已批准报销加普通权限内其他报销，状态筛选只在可见范围内生效。
 
 升级采用 Flyway V2 增量迁移：历史报销原总额和理由映射为一行明细，原附件映射为一张票据；历史已批准报销初始化为待支付，不补造支付人或支付时间。历史无票据单据保持可查看并提示，不追溯拒绝原有在途审批。新报销必须满足上述明细和票据规则。票据只校验文件类型、大小、归属和存在性，不做税票真实性识别或跨单据查重，也没有编辑已提交报销的接口。
 
@@ -666,7 +668,7 @@ Flutter `push_test.dart` 用假设备和 mock HTTP 验证权限拒绝、登记�
 ### 月度 CSV
 
 - ADMIN `GET /api/admin/exports/attendance-monthly.csv?month=YYYY-MM&departmentId=&detail=false`：工号、姓名、部门、应出勤、正常、迟到次数、迟到分钟、早退次数、早退分钟、缺卡次数、请假天数、外勤天数。`detail=true` 改为工号/姓名/部门/日期/状态/首次/末次/迟到分钟/早退分钟/缺卡说明/关联单号。
-- ADMIN 或 FINANCE `GET /api/admin/exports/expenses-monthly.csv?month=YYYY-MM&departmentId=&status=&basis=created`：单号、申请人、部门、提交时间、金额、明细条数、用途摘要、审批状态、支付状态、支付时间，末尾金额合计。默认按提交时间 created_at；`basis=approved` 仅取当前已批准单据、以最后一个已批准步骤的 acted_at 归月。可按审批状态筛选。
+- ADMIN 或 FINANCE `GET /api/admin/exports/expenses-monthly.csv?month=YYYY-MM&departmentId=&status=&basis=created`：单号、申请人、部门、提交时间、金额、明细条数、用途摘要、审批状态、支付状态、支付时间，末尾金额合计。默认按提交时间 created_at；`basis=approved` 仅取当前已批准单据、以最后一个已批准步骤的 acted_at 归月。管理员可导出全部状态、全部部门；非管理员财务范围为全部已批准报销，加按普通请求权限可见的其他报销（本人、审批链指派/实际处理人、改派前后审批人、抄送人）。状态筛选仅在此可见范围内生效；详情、列表与导出共用同一规则。
 - 原 `requests.csv` 新增可选 `from/to`，按提交日期含首尾筛选，原参数语义不变。
 - UTF-8 BOM，CRLF，所有单元格带双引号并转义；去掉前导空白后以 `= + - @` 开头或以控制换行/制表开头的单元格加单引号。超过10000行400「导出超过 10000 条，请缩小筛选范围」。新导出记录 `EXPORT_ATTENDANCE_MONTHLY` / `EXPORT_EXPENSES_MONTHLY` 审计；无数据仍有表头，报销仍有合计。
 
@@ -695,3 +697,5 @@ Flutter `push_test.dart` 用假设备和 mock HTTP 验证权限拒绝、登记�
 ### 仅 dev 的验收辅助
 
 原模拟打卡 `/api/admin/dev/punch` 新增可选 `at`（北京时间、不允许未来）；仅 dev ADMIN，可以构造历史测试卡；不影响员工打卡。`POST /api/admin/dev/run-auto-urge` 无body执行当前巡检；可传 `{requestId,now:"ISO时刻"}` 仅对指定测试申请用模拟时刻巡检，便于验证24小时边界和去重，生产profile无此接口。
+
+CSV 单元格统一双引号包裹并转义双引号；原串以制表/回车/换行开头，或去除前导空白后以 `= + - @`（含全角 `＝ ＋ － ＠`）开头时前置单引号。null 输出空单元格。数值沿用既有文本输出规则，负值也防护，不引入数值类型旁路；BOM、CRLF、中文标签与审计保持。

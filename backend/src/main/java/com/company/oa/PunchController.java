@@ -5,7 +5,6 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import java.time.*;
 import java.util.*;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -121,28 +120,23 @@ class PunchService {
 class PunchController {
   final PunchService punches;
   final JdbcTemplate db;
-  final Set<String> trustedProxies;
+  final ClientIpResolver clientIps;
   final WorkbenchController workbench;
 
   PunchController(
       PunchService punches,
       JdbcTemplate db,
       WorkbenchController workbench,
-      @Value("${oa.trusted-proxies:}") String proxies) {
+      ClientIpResolver clientIps) {
     this.punches = punches;
     this.workbench = workbench;
     this.db = db;
-    this.trustedProxies = new HashSet<>(Arrays.asList(proxies.split(",")));
+    this.clientIps = clientIps;
   }
 
   @PostMapping
   Object punch(@Valid @RequestBody PunchService.Punch in, HttpServletRequest req) {
-    String ip = req.getRemoteAddr();
-    if (trustedProxies.contains(ip)) {
-      String forwarded = req.getHeader("X-OA-Client-IP");
-      ApiException.require(AdminController.validIp(forwarded), "可信反向代理必须传递真实客户端 IP");
-      ip = forwarded;
-    }
+    String ip = clientIps.resolve(req, true);
     return Map.of(
         "id",
         punches.record(

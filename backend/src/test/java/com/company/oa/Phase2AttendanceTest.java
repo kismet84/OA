@@ -66,6 +66,8 @@ class Phase2AttendanceTest {
     when(db.queryForList("SELECT * FROM users WHERE id=? FOR UPDATE", 8L))
         .thenReturn(List.of(Map.of("enabled", true)));
     when(db.queryForObject(anyString(), eq(Long.class), any(Object[].class))).thenReturn(0L);
+    when(db.queryForObject("SELECT count(*) FROM requests r WHERE r.id=? AND TRUE", Long.class, 42L))
+        .thenReturn(1L);
     assertThrows(ApiException.class, () -> service.decide(42, new WorkflowService.Decision(true, ""), new Actor(9, "管理员", "ADMIN", false, 0)));
     verify(db).queryForObject(contains("start_at<=? AND end_at>?"), eq(Long.class), eq(8L), eq(at), eq(at));
     verify(db, never()).update(startsWith("INSERT INTO punches"), any(Object[].class));

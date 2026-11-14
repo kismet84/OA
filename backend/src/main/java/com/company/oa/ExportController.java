@@ -115,14 +115,14 @@ class ExportController {
               String.join(
                   ",",
                   rows.getFirst().keySet().stream()
-                      .map(k -> cell(HEADERS.getOrDefault(k, k)))
+                      .map(k -> CsvCells.cell(HEADERS.getOrDefault(k, k)))
                       .toList()))
           .append("\r\n");
       for (var r : rows)
         out.append(
                 String.join(
                     ",",
-                    r.entrySet().stream().map(e -> cell(value(e.getKey(), e.getValue()))).toList()))
+                    r.entrySet().stream().map(e -> CsvCells.cell(value(e.getKey(), e.getValue()))).toList()))
             .append("\r\n");
     }
     auth.audit(actor.id(), "EXPORT_" + name.toUpperCase(), rows.size());
@@ -132,13 +132,4 @@ class ExportController {
         .body(out.toString());
   }
 
-  static String cell(Object v) {
-    String s = v == null ? "" : v.toString();
-    String trimmed = s.stripLeading();
-    if ((!trimmed.isEmpty() && "=+-@".indexOf(trimmed.charAt(0)) >= 0)
-        || s.startsWith("\t")
-        || s.startsWith("\r")
-        || s.startsWith("\n")) s = "'" + s;
-    return "\"" + s.replace("\"", "\"\"") + "\"";
-  }
 }

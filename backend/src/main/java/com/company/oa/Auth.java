@@ -139,11 +139,14 @@ class AuthController {
   final Auth auth;
   final JdbcTemplate db;
   final Environment env;
+  final ClientIpResolver clientIps;
+  static final int IP_FAILURE_LIMIT = 100, UNKNOWN_PROXY_FAILURE_LIMIT = 1000, ACCOUNT_FAILURE_LIMIT = 5;
 
-  AuthController(Auth auth, JdbcTemplate db, Environment env) {
+  AuthController(Auth auth, JdbcTemplate db, Environment env, ClientIpResolver clientIps) {
     this.auth = auth;
     this.db = db;
     this.env = env;
+    this.clientIps = clientIps;
   }
 
   record Login(
@@ -158,24 +161,29 @@ class AuthController {
 
   @PostMapping("/login")
   Object login(@Valid @RequestBody Login input, HttpServletRequest req) {
-    String key = "login:" + input.login();
-    String ipKey = "login-ip:" + req.getRemoteAddr();
-    if (auth.throttle(ipKey) > 100) throw new ApiException(429, "登录尝试过多，请 15 分钟后重试");
-    String attempts = auth.redis.opsForValue().get(key);
-    if (attempts != null && Long.parseLong(attempts) >= 5)
-      throw new ApiException(429, "连续登录失败，请 15 分钟后重试");
-    var rows =
-        db.queryForList(
-            "SELECT * FROM users WHERE employee_no=? OR phone=?", input.login(), input.login());
+    String login = input.login().trim().toLowerCase(Locale.ROOT);
+    String key = "login:" + login;
+    String ip = clientIps.resolve(req, false);
+    String ipKey = "login-ip:" + ip;
+    int ipLimit = ip.equals("proxy-unknown") ? UNKNOWN_PROXY_FAILURE_LIMIT : IP_FAILURE_LIMIT;
+    if (limited(ipKey, ipLimit)) throw new ApiException(429, "登录尝试过多，请 15 分钟后重试");
+    var rows = db.queryForList(
+        "SELECT * FROM users WHERE lower(employee_no)=? OR lower(phone)=?", login, login);
     var u = rows.isEmpty() ? null : rows.getFirst();
+    String userKey = u == null ? key : "login-user:" + u.get("id");
+    if (limited(key, ACCOUNT_FAILURE_LIMIT) || limited(userKey, ACCOUNT_FAILURE_LIMIT))
+      throw new ApiException(429, "连续登录失败，请 15 分钟后重试");
     if (u == null
         || !(boolean) u.get("enabled")
         || !(input.password().getBytes(java.nio.charset.StandardCharsets.UTF_8).length <= 72
             && auth.encoder.matches(input.password(), (String) u.get("password_hash")))) {
       auth.throttle(key);
+      if (!userKey.equals(key)) auth.throttle(userKey);
+      auth.throttle(ipKey);
       throw new ApiException(401, "账号或密码错误，或账号已停用");
     }
-    auth.redis.delete(key);
+    auth.redis.delete(List.of(key, userKey, "login:" + u.get("employee_no").toString().trim().toLowerCase(Locale.ROOT)));
+    if (u.get("phone") != null) auth.redis.delete("login:" + u.get("phone").toString().trim().toLowerCase(Locale.ROOT));
     String token = UUID.randomUUID().toString() + UUID.randomUUID();
     auth.redis
         .opsForValue()
@@ -195,6 +203,11 @@ class AuthController {
         .set("session-id:" + Auth.sessionId(token), "active", Duration.ofHours(8));
     auth.audit(((Number) u.get("id")).longValue(), "LOGIN", u.get("id"));
     return Map.of("token", token, "user", auth.user(((Number) u.get("id")).longValue()));
+  }
+
+  boolean limited(String key, int limit) {
+    String value = auth.redis.opsForValue().get(key);
+    return value != null && Long.parseLong(value) >= limit;
   }
 
   @GetMapping("/me")

@@ -27,10 +27,10 @@ class MonthlyExportController {
       String filename, List<String> headers, List<List<Object>> rows, Actor a, String action) {
     ApiException.require(rows.size() <= 10000, "导出超过 10000 条，请缩小筛选范围");
     var out = new StringBuilder("\ufeff");
-    out.append(String.join(",", headers.stream().map(ExportController::cell).toList()))
+    out.append(String.join(",", headers.stream().map(CsvCells::cell).toList()))
         .append("\r\n");
     for (var row : rows)
-      out.append(String.join(",", row.stream().map(ExportController::cell).toList()))
+      out.append(String.join(",", row.stream().map(CsvCells::cell).toList()))
           .append("\r\n");
     auth.audit(a.id(), action, rows.size());
     return ResponseEntity.ok()
@@ -135,16 +135,26 @@ class MonthlyExportController {
             || Set.of("PENDING", "APPROVED", "REJECTED", "WITHDRAWN", "CANCELLED").contains(status),
         "审批状态无效");
     var m = AttendanceService.month(month);
-    var allowed = attendance.authorized(a, departmentId, null);
-    String ids =
-        allowed.isEmpty()
-            ? "NULL"
-            : String.join(",", allowed.stream().map(String::valueOf).toList());
+    var params = new ArrayList<Object>();
+    String visible = RequestVisibility.sql(a, params);
+    String department = "";
+    if (departmentId != null) {
+      ApiException.require(db.queryForObject("SELECT count(*) FROM departments WHERE id=?",
+          Long.class, departmentId) > 0, "部门不存在");
+      department = " AND u.department_id IN (WITH RECURSIVE d AS "
+          + "(SELECT id FROM departments WHERE id=? UNION SELECT c.id FROM departments c "
+          + "JOIN d ON c.parent_id=d.id) SELECT id FROM d)";
+      params.add(departmentId);
+    }
     String at =
         basis.equals("approved")
             ? "(SELECT max(s.acted_at) FROM approval_steps s WHERE s.request_id=r.id AND"
                   + " s.status='APPROVED')"
             : "r.created_at";
+    params.add(m.atDay(1).atStartOfDay());
+    params.add(m.plusMonths(1).atDay(1).atStartOfDay());
+    params.add(status);
+    params.add(status);
     var data =
         db.queryForList(
             "SELECT r.id,u.name user_name,d.name department_name,r.created_at,r.amount,(SELECT"
@@ -152,19 +162,16 @@ class MonthlyExportController {
                 + " string_agg(i.description,'；' ORDER BY i.line_no) FROM expense_items i WHERE"
                 + " i.request_id=r.id) purposes,r.status,r.payment_status,r.payment_acted_at FROM"
                 + " requests r JOIN users u ON u.id=r.user_id JOIN departments d ON"
-                + " d.id=u.department_id WHERE r.kind='EXPENSE' AND r.user_id IN ("
-                + ids
-                + ") AND "
+                + " d.id=u.department_id WHERE r.kind='EXPENSE' AND "
+                + visible + department
+                + " AND "
                 + at
                 + ">=? AND "
                 + at
                 + "<? AND (?='' OR r.status=?)"
                 + (basis.equals("approved") ? " AND r.status='APPROVED'" : "")
                 + " ORDER BY r.id LIMIT 10001",
-            m.atDay(1).atStartOfDay(),
-            m.plusMonths(1).atDay(1).atStartOfDay(),
-            status,
-            status);
+            params.toArray());
     ApiException.require(data.size() <= 10000, "导出超过 10000 条，请缩小筛选范围");
     var rows = new ArrayList<List<Object>>();
     var total = BigDecimal.ZERO;

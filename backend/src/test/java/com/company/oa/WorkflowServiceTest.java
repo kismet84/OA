@@ -44,10 +44,10 @@ class WorkflowServiceTest {
 
   @Test
   void spreadsheetFormulasAreEscaped() {
-    assertEquals("\"'=HYPERLINK(\"\"x\"\")\"", ExportController.cell("=HYPERLINK(\"x\")"));
-    assertEquals("\"'=1\n+2\"", ExportController.cell("=1\n+2"));
-    assertEquals("\"审批,意见\"", ExportController.cell("审批,意见"));
-    assertEquals("\"'  +123\"", ExportController.cell("  +123"));
+    assertEquals("\"'=HYPERLINK(\"\"x\"\")\"", CsvCells.cell("=HYPERLINK(\"x\")"));
+    assertEquals("\"'=1\n+2\"", CsvCells.cell("=1\n+2"));
+    assertEquals("\"审批,意见\"", CsvCells.cell("审批,意见"));
+    assertEquals("\"'  +123\"", CsvCells.cell("  +123"));
   }
 
   @Test

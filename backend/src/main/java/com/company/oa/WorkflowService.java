@@ -252,17 +252,11 @@ public class WorkflowService {
         db.queryForList("SELECT * FROM requests WHERE id=?" + (lock ? " FOR UPDATE" : ""), id);
     if (rows.isEmpty()) throw new ApiException(404, "审批单不存在");
     var r = rows.getFirst();
-    if (!a.admin()
-        && !(a.has("FINANCE") && r.get("kind").equals("EXPENSE") && r.get("status").equals("APPROVED"))
-        && ((Number) r.get("user_id")).longValue() != a.id()
-        && db.queryForObject(
-                "SELECT count(*) FROM approval_steps WHERE request_id=? AND (approver_id=? OR actor_id=?)",
-                Long.class,
-                id,
-                a.id(), a.id())
-            == 0
-        && db.queryForObject("SELECT count(*) FROM approval_reassignments WHERE business='REQUEST' AND target_id=? AND (previous_approver_id=? OR approver_id=?)",Long.class,id,a.id(),a.id())==0
-        && db.queryForObject("SELECT count(*) FROM request_cc WHERE request_id=? AND user_id=?", Long.class, id, a.id()) == 0)
+    var params = new ArrayList<Object>();
+    params.add(id);
+    String visible = RequestVisibility.sql(a, params);
+    if (db.queryForObject("SELECT count(*) FROM requests r WHERE r.id=? AND " + visible,
+        Long.class, params.toArray()) == 0)
       throw new ApiException(403, "无权查看该审批单");
     return r;
   }

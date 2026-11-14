@@ -82,15 +82,7 @@ class RequestController {
                 + " requests r JOIN users u ON u.id=r.user_id LEFT JOIN leave_types t ON"
                 + " t.id=r.type_id WHERE 1=1");
     List<Object> p = new ArrayList<>();
-    if (!a.admin()) {
-      sql.append(
-          " AND ((r.kind='EXPENSE' AND r.status='APPROVED' AND ?) OR r.user_id=? OR EXISTS(SELECT 1 FROM approval_steps s WHERE s.request_id=r.id AND"
-              + " (s.approver_id=? OR s.actor_id="+a.id()+")) OR EXISTS(SELECT 1 FROM approval_reassignments h WHERE h.business='REQUEST' AND h.target_id=r.id AND (h.previous_approver_id="+a.id()+" OR h.approver_id="+a.id()+")) OR EXISTS(SELECT 1 FROM request_cc c WHERE c.request_id=r.id AND c.user_id=?))");
-      p.add(a.has("FINANCE"));
-      p.add(a.id());
-      p.add(a.id());
-      p.add(a.id());
-    }
+    sql.append(" AND ").append(RequestVisibility.sql(a, p));
     if (inbox) {
       sql.append(
           " AND r.status='PENDING' AND EXISTS(SELECT 1 FROM approval_steps s WHERE"

@@ -18,7 +18,7 @@ class PunchControllerTest {
   final MockMvc mvc =
       MockMvcBuilders.standaloneSetup(
               new PunchController(
-                  service, mock(JdbcTemplate.class), mock(WorkbenchController.class), "127.0.0.1"))
+                  service, mock(JdbcTemplate.class), mock(WorkbenchController.class), new ClientIpResolver("127.0.0.1")))
           .setControllerAdvice(new ApiErrors())
           .build();
 
